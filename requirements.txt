@@ -1,0 +1,3 @@
+# Battle Buddy slice 1: typed reminder loop.
+# Python 3.10+ stdlib only. No extra packages.
+# No cloud STT. No accounts. pip install is optional.
