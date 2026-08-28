@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.env
+.env.*
+memory.json
+*.gguf
+*.bin
+models/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/

@@ -1,0 +1,32 @@
+---
+description: Battle Buddy Yard #1 — locked rules for every Cursor agent
+globs:
+alwaysApply: true
+---
+
+# Battle Buddy — Cursor rules
+
+You are in https://github.com/wyldephyre/battle-buddy
+
+This is Hackyard Yard #1. Theme: no accounts. Solo. Captain Phyre only.
+
+Read `AGENTS.md` and `docs/PRD.md` before you write files.
+
+## Do
+
+- Write new modules under `battlebuddy/` and the Hermes skill under `skills/battle-buddy/`
+- Keep voice-first, local memory, typed fallback
+- One change set per turn when possible
+- After a meaningful change, name the files touched and the single next step
+
+## Do not
+
+- Copy code from `wyldephyre/veteran-gaming-assistant`
+- Add login, email capture, OAuth, Steam API keys, or cloud STT as the default
+- Require SuperGrok or any provider account to complete the reminder loop
+- Put Jessica / MPOW doctrine in the UI
+- Expand scope past: speak/type reminder → confirm → fire → persist
+
+## Acceptance for the first loop
+
+A user with no account can set a 1-minute reminder, hear or see it fire, restart, and still see it.
