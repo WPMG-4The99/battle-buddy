@@ -68,7 +68,7 @@ hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 
 4. From the repo root, say or type: `Remind me in 1 minute to check food stores.`
 
-Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: HOLD THE LINE. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
+Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: SUBMIT. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
 
 ## System requirements
 

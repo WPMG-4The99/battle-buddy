@@ -110,7 +110,7 @@ class BattleBuddyApp:
 
         self.lock_btn = tk.Button(
             self.root,
-            text="HOLD THE LINE",
+            text="SUBMIT",
             font=("Arial", 26, "bold"),
             bg=_FLAME,
             fg=_BG,
