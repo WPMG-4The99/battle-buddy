@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from battlebuddy.reminders.commands import ActionResult, run_line
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.reminders.notify import announce, confirm
+from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.voice.stt import listen_once, stt_available
+from battlebuddy.voice.tick import play_ticks
 from battlebuddy.voice.tts import speak
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
@@ -44,8 +46,15 @@ def _print_list(result: ActionResult) -> None:
 
 def _watch(engine: ReminderEngine, reminder_id: str) -> int:
     print("Waiting to fire. Stay here.")
+    warned: set[str] = set()
     try:
         while True:
+            try:
+                hits = pending_minute_warns(engine.list_all(), warned)
+            except Exception:
+                hits = []
+            for _ in hits:
+                play_ticks()
             fired = engine.fire_due()
             hit = False
             for item in fired:
