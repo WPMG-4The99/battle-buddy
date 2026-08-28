@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -249,12 +250,23 @@ class BattleBuddyApp:
         raise_for_fire(self.root)
         self._show_fire(reminder.text)
         raise_for_fire(self.root)
+        self.root.after(300, lambda t=reminder.text: self._ensure_fire_visible(t))
 
     def _show_fire(self, text: str) -> None:
         self._fire_up = True
         self.fire_text.config(text=text)
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._overlay.lift()
+
+    def _ensure_fire_visible(self, text: str) -> None:
+        """If the main window is still iconic, open a topmost FIRE splash."""
+        try:
+            state = str(self.root.state())
+        except Exception:
+            state = "unknown"
+        if state != "iconic":
+            return
+        spawn_fire_splash(text)
 
     def _dismiss_fire(self) -> None:
         self._fire_up = False
@@ -278,14 +290,33 @@ def raise_for_fire(root: object) -> None:
         lambda: root.attributes("-topmost", True),
         lambda: root.lift(),
         lambda: root.focus_force(),
-        lambda: root.update(),
+        lambda: root.update_idletasks(),
     ):
         try:
             action()
         except Exception:
             continue
-    _raise_windows(root)
-    _raise_linux()
+    threading.Thread(target=_raise_windows, args=(root,), daemon=True).start()
+    threading.Thread(target=_raise_linux, daemon=True).start()
+
+
+def spawn_fire_splash(text: str) -> None:
+    """Separate topmost FIRE window. Used when the main UI stays minimized."""
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "battlebuddy.ui.app", "--fire", text],
+            cwd=str(_repo_root()),
+            env=os.environ.copy(),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return
+
+
+def _repo_root():
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _raise_windows(root: object) -> None:
@@ -310,6 +341,7 @@ def _raise_linux() -> None:
     xdotool = shutil.which("xdotool")
     if xdotool is None:
         return
+    env = os.environ.copy()
     try:
         subprocess.run(
             [
@@ -324,6 +356,64 @@ def _raise_linux() -> None:
             timeout=3,
             check=False,
             capture_output=True,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError):
         return
+
+
+def run_fire_splash(text: str) -> int:
+    """Standalone FIRE surface. No account. Closes on SEEN."""
+    try:
+        import tkinter as tk
+    except ImportError:
+        print(fire_banner(text))
+        return 0
+    root = tk.Tk()
+    root.title("FIRE — Battle Buddy")
+    root.configure(bg=_FIRE_BG)
+    root.geometry("740x560+80+80")
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+    tk.Label(
+        root,
+        text="FIRE",
+        font=("Arial", 80, "bold"),
+        fg=_FIRE_FG,
+        bg=_FIRE_BG,
+    ).pack(pady=(80, 12))
+    tk.Label(
+        root,
+        text=text,
+        font=("Arial", 28, "bold"),
+        fg=_FG,
+        bg=_FIRE_BG,
+        wraplength=640,
+    ).pack(pady=12, padx=24)
+    tk.Button(
+        root,
+        text="SEEN",
+        font=("Arial", 24, "bold"),
+        bg=_FIRE_FG,
+        fg=_FIRE_BG,
+        activebackground="#FFF38A",
+        relief="flat",
+        cursor="hand2",
+        command=root.destroy,
+    ).pack(fill="x", ipady=18, padx=48, pady=32)
+    try:
+        root.lift()
+        root.focus_force()
+    except Exception:
+        pass
+    root.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if args and args[0] == "--fire":
+        raise SystemExit(run_fire_splash(" ".join(args[1:]) or "reminder"))
+    raise SystemExit(run_ui())
