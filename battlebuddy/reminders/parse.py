@@ -37,6 +37,31 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
 )
 
+_LIST = re.compile(
+    r"^\s*(?:list(?:\s+my)?(?:\s+reminders)?|ls|show(?:\s+my)?\s+reminders)\s*$",
+    re.IGNORECASE,
+)
+_CLEAR_ALL = re.compile(r"^\s*clear\s+all\s*$", re.IGNORECASE)
+_SNOOZE = re.compile(
+    rf"^\s*snooze\s+(?P<query>.+?)\s+(?:for\s+)?(?P<n>\d+)\s*(?P<unit>{_UNIT})\s*$",
+    re.IGNORECASE,
+)
+_CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*clear\s+reminder\s+about\s+(?P<query>.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*clear\s+reminder\s+(?P<query>.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*clear\s+about\s+(?P<query>.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*clear\s+(?P<query>.+?)\s*$", re.IGNORECASE),
+)
+
+
+def delay_label(amount: int, unit: str) -> str:
+    label_unit = unit
+    if amount == 1 and label_unit.endswith("s"):
+        label_unit = label_unit[:-1]
+    if amount != 1 and not label_unit.endswith("s"):
+        label_unit = label_unit + "s"
+    return f"{amount} {label_unit}"
+
 
 @dataclass(frozen=True)
 class ParsedReminder:
@@ -47,12 +72,19 @@ class ParsedReminder:
 
     @property
     def delay_label(self) -> str:
-        unit = self.unit
-        if self.amount == 1 and unit.endswith("s"):
-            unit = unit[:-1]
-        if self.amount != 1 and not unit.endswith("s"):
-            unit = unit + "s"
-        return f"{self.amount} {unit}"
+        return delay_label(self.amount, self.unit)
+
+
+@dataclass(frozen=True)
+class ParsedSnooze:
+    query: str
+    delay_seconds: int
+    amount: int
+    unit: str
+
+    @property
+    def delay_label(self) -> str:
+        return delay_label(self.amount, self.unit)
 
 
 def parse_reminder(line: str) -> ParsedReminder | None:
@@ -75,4 +107,46 @@ def parse_reminder(line: str) -> ParsedReminder | None:
             amount=amount,
             unit=unit_key,
         )
+    return None
+
+
+def is_list_command(line: str) -> bool:
+    return bool(_LIST.match(" ".join(line.strip().split())))
+
+
+def is_clear_all(line: str) -> bool:
+    return bool(_CLEAR_ALL.match(" ".join(line.strip().split())))
+
+
+def parse_snooze(line: str) -> ParsedSnooze | None:
+    raw = " ".join(line.strip().split())
+    if not raw:
+        return None
+    match = _SNOOZE.match(raw)
+    if not match:
+        return None
+    query = match.group("query").strip()
+    amount = int(match.group("n"))
+    unit_key = match.group("unit").lower()
+    if amount < 1 or not query:
+        return None
+    return ParsedSnooze(
+        query=query,
+        delay_seconds=amount * _UNIT_SECONDS[unit_key],
+        amount=amount,
+        unit=unit_key,
+    )
+
+
+def parse_clear(line: str) -> str | None:
+    raw = " ".join(line.strip().split())
+    if not raw or is_clear_all(raw):
+        return None
+    for pattern in _CLEAR_PATTERNS:
+        match = pattern.match(raw)
+        if not match:
+            continue
+        query = match.group("query").strip()
+        if query:
+            return query
     return None

@@ -144,6 +144,29 @@ class ReminderEngine:
         self._persist(reminders)
         return target
 
+    def clear(self, query: str) -> Reminder | None:
+        """Delete the first match. Pending first, then fired."""
+        reminders = self.load()
+        target = self._match(reminders, query, statuses={STATUS_PENDING})
+        if target is None:
+            target = self._match(
+                reminders,
+                query,
+                statuses={STATUS_FIRED, STATUS_CANCELLED},
+            )
+        if target is None:
+            return None
+        remaining = [item for item in reminders if item.id != target.id]
+        self._persist(remaining)
+        return target
+
+    def clear_all(self) -> int:
+        """Wipe every reminder on disk. Returns how many were removed."""
+        reminders = self.load()
+        count = len(reminders)
+        self._persist([])
+        return count
+
     def fire_due(self, now: datetime | None = None) -> list[Reminder]:
         moment = now if now is not None else _utc_now()
         reminders = self.load()

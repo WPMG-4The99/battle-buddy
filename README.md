@@ -1,13 +1,41 @@
 # Battle Buddy
 
-External memory for veterans in long game sessions.
+Speak it once. It holds the line.
 
-Speak it once. It holds the line. No account. No cloud. No one else in your session.
+**No accounts.** No sign-up. No login. No email. No Steam key. No cloud.
 
-**Hackyard Yard #1 — Escape Velocity.** Theme: no accounts.  
-Repo opened 28 Aug 2026. Product code starts at kickoff (28 Aug 18:00 UTC).
+External memory for veterans in long game sessions. For the forgotten 99%, we rise.
 
-For the forgotten 99%, we rise.
+## Run it — Windows (PowerShell or cmd)
+
+Python 3.10+. No signup. Clone, run, done.
+
+```text
+git clone https://github.com/wyldephyre/battle-buddy.git
+cd battle-buddy
+python -m battlebuddy remind me in 1 minute to check food stores
+```
+
+Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
+
+High-contrast UI (same folder, no account):
+
+```text
+python -m battlebuddy ui
+```
+
+List, snooze, and clear (same on-disk memory):
+
+```text
+python -m battlebuddy list
+python -m battlebuddy snooze food stores 5 minutes
+python -m battlebuddy clear reminder about mines
+python -m battlebuddy clear all
+```
+
+macOS / Linux: same commands. venv optional. Typed fallback always works even if the mic does not. No cloud STT.
+
+State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed. Restart and `list` still shows it.
 
 ---
 
@@ -19,6 +47,8 @@ This is a **Hermes Desktop skill pack** plus a standalone launch of the same mod
 
 Jessica is not this app. Jessica stays the XO. Battle Buddy is a specialist tool.
 
+**Hackyard Yard #1 — Escape Velocity.** Theme: no accounts.
+
 ## What this is not
 
 - No sign-up. No login. No email.
@@ -26,22 +56,7 @@ Jessica is not this app. Jessica stays the XO. Battle Buddy is a specialist tool
 - No Zo email-triage product. That is a different tool.
 - No wellness coach. No moralizing.
 
-## Yard rules we are honoring
-
-- Theme: no sign-up, no login, no email **to use it**
-- Any local model (target: 2–3B)
-- Solo
-- All **product code** written during the 48-hour window
-- Public repo
-- Demo video
-
-No accounts. Product code is the reminder loop in this repo.
-
-## How you run it
-
-Two paths. Same reminder logic. Same on-disk memory. Python 3.10+. No signup.
-
-### Path A — Hermes skill (product shape)
+## Hermes skill (product runtime)
 
 1. Install [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/getting-started/installation) (official installer).
 2. Point Hermes at a **local** 2–3B (Ollama / LM Studio / llama.cpp). Empty API key. No provider signup.
@@ -53,39 +68,7 @@ hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 
 4. From the repo root, say or type: `Remind me in 1 minute to check food stores.`
 
-### Path B — Standalone (judge / no-Hermes proof)
-
-```text
-git clone https://github.com/wyldephyre/battle-buddy.git
-cd battle-buddy
-python -m battlebuddy remind me in 1 minute to check food stores
-```
-
-Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
-
-High-contrast UI (Windows, from the clone folder):
-
-```text
-python -m battlebuddy ui
-```
-
-One primary action: HOLD THE LINE. Typed entry is prefilled. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
-
-After restart:
-
-```text
-python -m battlebuddy list
-```
-
-Windows (PowerShell or cmd), from the clone folder:
-
-```text
-python -m battlebuddy remind me in 1 minute to check food stores
-```
-
-venv is optional. `requirements.txt` is empty on purpose: stdlib only. No cloud STT. Typed fallback always works even if the mic does not.
-
-State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed.
+Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: HOLD THE LINE. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
 
 ## System requirements
 
@@ -96,9 +79,11 @@ State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy
 ## Repo map (this slice)
 
 ```text
-skills/battle-buddy/SKILL.md   Hermes skill for the same loop
+skills/battle-buddy/SKILL.md   Hermes skill: remind, list, snooze, clear
 battlebuddy/memory/            local JSON store
-battlebuddy/reminders/         schedule, fire, list, cancel, snooze
+battlebuddy/reminders/         schedule, fire, list, clear, snooze
+battlebuddy/voice/             local TTS / STT, typed fallback
+battlebuddy/ui/                high-contrast window
 battlebuddy/__main__.py        typed CLI
 docs/                          PRD, agent loop, kickoff commands
 .cursor/rules/                 Cursor project rules
@@ -115,7 +100,7 @@ Captain Phyre runs three surfaces. Read `docs/DEV-LOOP.md` and `docs/KICKOFF-COM
 | Grok Bot | Implementation orders, tight loops, ship checklist |
 | Cursor | Files on disk. Apply diffs. Run the app |
 
-One objective at a time. First objective after kickoff: persist a reminder and fire it with no account.
+One objective at a time.
 
 ## License
 

@@ -6,10 +6,11 @@ import sys
 import time
 from datetime import datetime, timezone
 
+from battlebuddy.reminders.commands import ActionResult, run_line
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.reminders.notify import announce, confirm
-from battlebuddy.reminders.parse import parse_reminder
 from battlebuddy.voice.stt import listen_once, stt_available
+from battlebuddy.voice.tts import speak
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
@@ -17,6 +18,9 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy remind me in 1 minute to check food stores
   python -m battlebuddy listen
   python -m battlebuddy list
+  python -m battlebuddy snooze food stores 5 minutes
+  python -m battlebuddy clear reminder about mines
+  python -m battlebuddy clear all
 
 State lives in ~/.battlebuddy/memory.json (or BATTLEBUDDY_HOME).
 Stay in this window so it can fire. Ctrl+C keeps it on disk.
@@ -31,16 +35,11 @@ def _local_stamp(iso: str) -> str:
     return parsed.astimezone().strftime("%H:%M:%S")
 
 
-def _print_list(engine: ReminderEngine) -> int:
-    reminders = engine.list_all()
-    if not reminders:
-        print("No reminders on disk.")
-        return 0
-    print("Reminders on disk (no account):")
-    for item in reminders:
+def _print_list(result: ActionResult) -> None:
+    print(result.message)
+    for item in result.reminders:
         due = _local_stamp(item.due_at)
         print(f"  [{item.status.upper()}] {item.text}  due {due}  id {item.id}")
-    return 0
 
 
 def _watch(engine: ReminderEngine, reminder_id: str) -> int:
@@ -117,16 +116,28 @@ def run(argv: list[str] | None = None) -> int:
         return 0
 
     engine = ReminderEngine()
-    if lowered in {"list", "ls"}:
-        return _print_list(engine)
+    result = run_line(engine, line)
 
-    parsed = parse_reminder(line)
-    if parsed is None:
-        print("Could not parse that. Try:")
-        print("  remind me in 1 minute to check food stores")
+    if result.kind == "list":
+        _print_list(result)
+        if result.speak:
+            speak(result.speak)
+        return 0
+
+    if result.kind in {"snooze", "clear", "clear_all"}:
+        print(result.message)
+        if result.ok and result.kind == "snooze" and result.reminder is not None:
+            print(f"Due {_local_stamp(result.reminder.due_at)}. id {result.reminder.id}")
+        if result.speak:
+            speak(result.speak)
+        return 0 if result.ok else 1
+
+    if result.kind != "remind" or result.reminder is None or result.parsed is None:
+        print(result.message)
         return 1
 
-    reminder = engine.schedule(parsed.text, parsed.delay_seconds)
+    reminder = result.reminder
+    parsed = result.parsed
     confirm(reminder.text, parsed.delay_label, _local_stamp(reminder.due_at), reminder.id)
     if not wait:
         print("Saved. Not watching. Run list after restart to see it.")
