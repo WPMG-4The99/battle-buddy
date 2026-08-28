@@ -35,39 +35,49 @@ Jessica is not this app. Jessica stays the XO. Battle Buddy is a specialist tool
 - Public repo
 - Demo video
 
-This README and the docs under `docs/` are pre-kickoff briefing. Implementation files land after 18:00 UTC 28 Aug 2026.
+No accounts. Product code is the reminder loop in this repo.
 
-## After kickoff — how you run it
+## How you run it
 
-Two paths. Same reminder logic. Same on-disk memory.
+Two paths. Same reminder logic. Same on-disk memory. Python 3.10+. No signup.
 
 ### Path A — Hermes skill (product shape)
 
 1. Install [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/getting-started/installation) (official installer).
 2. Point Hermes at a **local** 2–3B (Ollama / LM Studio / llama.cpp). Empty API key. No provider signup.
-3. Install this skill from the repo after the first product commit exists:
+3. Clone this repo. Install the skill:
 
 ```text
 hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 ```
 
-4. New Hermes session. Say or type: `Remind me in 15 minutes to check food stores.`
+4. From the repo root, say or type: `Remind me in 1 minute to check food stores.`
 
 ### Path B — Standalone (judge / no-Hermes proof)
-
-Commands will live here after the first product commit. Planned shape:
 
 ```text
 git clone https://github.com/wyldephyre/battle-buddy.git
 cd battle-buddy
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-python -m battlebuddy
+python -m battlebuddy remind me in 1 minute to check food stores
 ```
 
-Typed fallback always works even if the mic does not.
+Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
+
+After restart:
+
+```text
+python -m battlebuddy list
+```
+
+Windows (PowerShell or cmd), from the clone folder:
+
+```text
+python -m battlebuddy remind me in 1 minute to check food stores
+```
+
+venv is optional. `requirements.txt` is empty on purpose: stdlib only. No cloud STT. Typed fallback always works even if the mic does not.
+
+State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed.
 
 ## System requirements
 
@@ -75,17 +85,17 @@ Typed fallback always works even if the mic does not.
 
 **Recommended (Hermes + local 2–3B):** NVIDIA 8 GB VRAM (12 GB happier), 16 GB RAM. If the box is below that, skip the local LLM. The reminder loop must still work.
 
-## Repo map (target after kickoff)
+## Repo map (this slice)
 
 ```text
-skills/battle-buddy/     Hermes skill (SKILL.md + scripts)
-battlebuddy/             Shared modules: voice, memory, reminders, ui, config
-docs/                    PRD, agent loop, kickoff commands
-.cursor/rules/           Cursor project rules
-AGENTS.md                Standing orders for every agent
+skills/battle-buddy/SKILL.md   Hermes skill for the same loop
+battlebuddy/memory/            local JSON store
+battlebuddy/reminders/         schedule, fire, list, cancel, snooze
+battlebuddy/__main__.py        typed CLI
+docs/                          PRD, agent loop, kickoff commands
+.cursor/rules/                 Cursor project rules
+AGENTS.md                      Standing orders for every agent
 ```
-
-Nothing in `battlebuddy/` or `skills/` is product code until kickoff.
 
 ## Agent loop
 
