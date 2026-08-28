@@ -247,10 +247,14 @@ class BattleBuddyApp:
         sys.stdout.write("\a")
         sys.stdout.flush()
         speak_async(f"Battle Buddy. Fire. {reminder.text}")
+        hidden = _window_is_hidden(self.root)
         raise_for_fire(self.root)
         self._show_fire(reminder.text)
         raise_for_fire(self.root)
-        self.root.after(300, lambda t=reminder.text: self._ensure_fire_visible(t))
+        if hidden:
+            spawn_fire_splash(reminder.text)
+        else:
+            self.root.after(400, lambda t=reminder.text: self._ensure_fire_visible(t))
 
     def _show_fire(self, text: str) -> None:
         self._fire_up = True
@@ -259,12 +263,8 @@ class BattleBuddyApp:
         self._overlay.lift()
 
     def _ensure_fire_visible(self, text: str) -> None:
-        """If the main window is still iconic, open a topmost FIRE splash."""
-        try:
-            state = str(self.root.state())
-        except Exception:
-            state = "unknown"
-        if state != "iconic":
+        """If the main window is not on screen, open a topmost FIRE splash."""
+        if not _window_is_hidden(self.root):
             return
         spawn_fire_splash(text)
 
@@ -276,6 +276,16 @@ class BattleBuddyApp:
         except Exception:
             pass
         self.status.config(text="Fire seen. Lock another when you need it.")
+
+
+def _window_is_hidden(root: object) -> bool:
+    try:
+        state = str(root.state())
+        viewable = bool(root.winfo_viewable())
+        mapped = bool(root.winfo_ismapped())
+    except Exception:
+        return False
+    return state == "iconic" or not viewable or not mapped
 
 
 def raise_for_fire(root: object) -> None:
