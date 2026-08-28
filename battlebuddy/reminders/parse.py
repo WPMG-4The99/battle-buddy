@@ -20,19 +20,70 @@ _UNIT_SECONDS: dict[str, int] = {
     "hrs": 3600,
 }
 
+_ONES = (
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+)
+_TEENS = (
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+)
+_TENS = (
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+)
+
+_WORD_NUMBERS: dict[str, int] = {
+    "a": 1,
+    "an": 1,
+    **{word: index for index, word in enumerate(_ONES, start=1)},
+    **{word: index for index, word in enumerate(_TEENS, start=10)},
+    **{word: (index + 2) * 10 for index, word in enumerate(_TENS)},
+}
+
+_ONES_ALT = "|".join(_ONES)
+_TEENS_ALT = "|".join(_TEENS)
+_TENS_ALT = "|".join(_TENS)
+# Longer tokens first so "an" wins over "a" and teens win over "eight"/"nine".
+_SPOKEN_AMOUNT = (
+    rf"(?:an|a|{_TEENS_ALT}|{_ONES_ALT}|(?:{_TENS_ALT})(?:[\s-](?:{_ONES_ALT}))?)"
+)
+_AMOUNT = rf"(?:\d+|{_SPOKEN_AMOUNT})"
+
 _UNIT = r"seconds?|secs?|minutes?|mins?|hours?|hrs?"
 
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"^\s*remind\s+me\s+in\s+(?P<n>\d+)\s*(?P<unit>{_UNIT})\s+to\s+(?P<text>.+?)\s*$",
+        rf"^\s*remind\s+me\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+to\s+(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*in\s+(?P<n>\d+)\s*(?P<unit>{_UNIT})\s+remind\s+me(?:\s+to)?\s+(?P<text>.+?)\s*$",
+        rf"^\s*in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+remind\s+me(?:\s+to)?\s+(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+(?P<n>\d+)\s*(?P<unit>{_UNIT})\s*$",
+        rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
         re.IGNORECASE,
     ),
 )
@@ -43,7 +94,7 @@ _LIST = re.compile(
 )
 _CLEAR_ALL = re.compile(r"^\s*clear\s+all\s*$", re.IGNORECASE)
 _SNOOZE = re.compile(
-    rf"^\s*snooze\s+(?P<query>.+?)\s+(?:for\s+)?(?P<n>\d+)\s*(?P<unit>{_UNIT})\s*$",
+    rf"^\s*snooze\s+(?P<query>.+?)\s+(?:for\s+)?(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
     re.IGNORECASE,
 )
 _CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -52,6 +103,27 @@ _CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*clear\s+about\s+(?P<query>.+?)\s*$", re.IGNORECASE),
     re.compile(r"^\s*clear\s+(?P<query>.+?)\s*$", re.IGNORECASE),
 )
+
+
+def _amount_to_int(raw: str) -> int | None:
+    token = raw.strip().lower()
+    if token.isdigit():
+        return int(token)
+    parts = re.split(r"[\s-]+", token)
+    if len(parts) == 1:
+        return _WORD_NUMBERS.get(parts[0])
+    if len(parts) == 2:
+        tens = _WORD_NUMBERS.get(parts[0])
+        ones = _WORD_NUMBERS.get(parts[1])
+        if (
+            tens is not None
+            and ones is not None
+            and tens >= 20
+            and tens % 10 == 0
+            and 1 <= ones <= 9
+        ):
+            return tens + ones
+    return None
 
 
 def delay_label(amount: int, unit: str) -> str:
@@ -95,10 +167,10 @@ def parse_reminder(line: str) -> ParsedReminder | None:
         match = pattern.match(raw)
         if not match:
             continue
-        amount = int(match.group("n"))
+        amount = _amount_to_int(match.group("n"))
         unit_key = match.group("unit").lower()
         text = match.group("text").strip().rstrip(".")
-        if amount < 1 or not text:
+        if amount is None or amount < 1 or not text:
             return None
         seconds = amount * _UNIT_SECONDS[unit_key]
         return ParsedReminder(
@@ -126,9 +198,9 @@ def parse_snooze(line: str) -> ParsedSnooze | None:
     if not match:
         return None
     query = match.group("query").strip()
-    amount = int(match.group("n"))
+    amount = _amount_to_int(match.group("n"))
     unit_key = match.group("unit").lower()
-    if amount < 1 or not query:
+    if amount is None or amount < 1 or not query:
         return None
     return ParsedSnooze(
         query=query,
