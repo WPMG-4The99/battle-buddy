@@ -384,9 +384,17 @@ def run_fire_splash(text: str) -> int:
     root.configure(bg=_FIRE_BG)
     root.geometry("740x560+80+80")
     try:
-        root.attributes("-topmost", True)
+        root.wm_class("BattleBuddyFire", "BattleBuddyFire")
     except Exception:
         pass
+    try:
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
+    except Exception:
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
     tk.Label(
         root,
         text="FIRE",
