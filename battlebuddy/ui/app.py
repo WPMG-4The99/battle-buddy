@@ -13,7 +13,9 @@ from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
+from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.voice.stt import listen_once, stt_available
+from battlebuddy.voice.tick import play_ticks_async
 from battlebuddy.voice.tts import speak_async, tts_available
 
 _BG = "#111111"
@@ -91,6 +93,7 @@ class BattleBuddyApp:
         self._fire_up = False
         self._wipe_armed = False
         self._clocks: dict[str, tuple[object, str]] = {}
+        self._minute_warned: set[str] = set()
 
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
@@ -360,6 +363,7 @@ class BattleBuddyApp:
         for item in reminders:
             self._add_row(item)
         self._bind_wheel(self.list_box)
+        self._emit_minute_warns()
 
     def _bind_wheel(self, widget: object) -> None:
         for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
@@ -453,6 +457,7 @@ class BattleBuddyApp:
         self._refresh_list()
 
     def _tick(self) -> None:
+        self._emit_minute_warns()
         try:
             fired = self.engine.fire_due()
         except Exception:
@@ -467,6 +472,15 @@ class BattleBuddyApp:
             self.root.after(_POLL_MS, self._tick)
         except Exception:
             return
+
+    def _emit_minute_warns(self) -> None:
+        """One tick-tick-tick when a pending reminder first has 60 seconds left."""
+        try:
+            hits = pending_minute_warns(self.engine.list_all(), self._minute_warned)
+        except Exception:
+            return
+        if hits:
+            play_ticks_async(len(hits))
 
     def _tick_clocks(self) -> None:
         """Rewrite pending clocks about once per second. Fired rows stay FIRED."""
