@@ -90,6 +90,7 @@ class BattleBuddyApp:
         self._listening = False
         self._fire_up = False
         self._wipe_armed = False
+        self._clocks: dict[str, tuple[object, str]] = {}
 
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
@@ -337,6 +338,7 @@ class BattleBuddyApp:
         self._lock()
 
     def _refresh_list(self) -> None:
+        self._clocks = {}
         for child in self.list_box.winfo_children():
             child.destroy()
         tk = self.tk
@@ -369,17 +371,28 @@ class BattleBuddyApp:
         tk = self.tk
         row = tk.Frame(self.list_box, bg=_INPUT_BG, highlightthickness=2, highlightbackground=_FLAME)
         row.pack(fill="x", pady=8)
-        due = _local_stamp(item.due_at)
         tk.Label(
             row,
-            text=f"{item.text}  ·  {item.status.upper()}  ·  due {due}",
+            text=item.text,
             font=("Arial", 16),
             fg=_FG,
             bg=_INPUT_BG,
             wraplength=640,
             justify="left",
             anchor="w",
-        ).pack(fill="x", padx=12, pady=(10, 4))
+        ).pack(fill="x", padx=12, pady=(10, 2))
+        pending = item.status == STATUS_PENDING
+        clock = tk.Label(
+            row,
+            text=row_clock_text(item.status, item.due_at),
+            font=_CLOCK_FONT,
+            fg=_FLAME if pending else _FIRE_FG,
+            bg=_INPUT_BG,
+            anchor="w",
+        )
+        clock.pack(fill="x", padx=12, pady=(0, 4))
+        if pending:
+            self._clocks[item.id] = (clock, item.due_at)
         btns = tk.Frame(row, bg=_INPUT_BG)
         btns.pack(fill="x", padx=12, pady=(0, 10))
         tk.Button(
@@ -448,10 +461,25 @@ class BattleBuddyApp:
             self._on_fire(item)
         if fired:
             self._refresh_list()
+        else:
+            self._tick_clocks()
         try:
             self.root.after(_POLL_MS, self._tick)
         except Exception:
             return
+
+    def _tick_clocks(self) -> None:
+        """Rewrite pending clocks about once per second. Fired rows stay FIRED."""
+        if not self._clocks:
+            return
+        now = datetime.now(timezone.utc)
+        for label, due_at in self._clocks.values():
+            text = format_countdown(remaining_seconds(due_at, now))
+            try:
+                if str(label.cget("text")) != text:
+                    label.config(text=text)
+            except Exception:
+                continue
 
     def _on_fire(self, reminder: Reminder) -> None:
         sys.stdout.write(fire_banner(reminder.text) + "\n")
