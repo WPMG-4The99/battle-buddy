@@ -63,6 +63,14 @@ python -m battlebuddy remind me in 1 minute to check food stores
 
 Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
 
+High-contrast UI (Windows, from the clone folder):
+
+```text
+python -m battlebuddy ui
+```
+
+One primary action: HOLD THE LINE. Typed entry is prefilled. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
+
 After restart:
 
 ```text

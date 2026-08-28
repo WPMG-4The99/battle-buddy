@@ -1,4 +1,4 @@
-"""Typed entry. No login. Speak later. Type it now."""
+"""Typed entry. Voice if the box can. No login."""
 
 from __future__ import annotations
 
@@ -6,13 +6,16 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from battlebuddy.reminders.engine import Reminder, ReminderEngine
-from battlebuddy.reminders.notify import announce
+from battlebuddy.reminders.engine import ReminderEngine
+from battlebuddy.reminders.notify import announce, confirm
 from battlebuddy.reminders.parse import parse_reminder
+from battlebuddy.voice.stt import listen_once, stt_available
 
-_HELP = """Battle Buddy. No account. No cloud. Typed fallback.
+_HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
+  python -m battlebuddy ui
   python -m battlebuddy remind me in 1 minute to check food stores
+  python -m battlebuddy listen
   python -m battlebuddy list
 
 State lives in ~/.battlebuddy/memory.json (or BATTLEBUDDY_HOME).
@@ -40,12 +43,6 @@ def _print_list(engine: ReminderEngine) -> int:
     return 0
 
 
-def _confirm(reminder: Reminder, delay_label: str) -> None:
-    due = _local_stamp(reminder.due_at)
-    print(f"Locked. Fires in {delay_label}: {reminder.text}")
-    print(f"Due {due}. Holding the line. id {reminder.id}")
-
-
 def _watch(engine: ReminderEngine, reminder_id: str) -> int:
     print("Waiting to fire. Stay here.")
     try:
@@ -64,6 +61,29 @@ def _watch(engine: ReminderEngine, reminder_id: str) -> int:
         return 0
 
 
+def _read_typed_line() -> str:
+    print("Battle Buddy. No account. No cloud.")
+    print("Type a reminder. Example: remind me in 1 minute to check food stores")
+    try:
+        return input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def _listen_line() -> str:
+    if not stt_available():
+        print("No local STT on this box. Typed fallback is live.")
+        return _read_typed_line()
+    print("Listening. Speak a reminder. Local only. No cloud.")
+    heard = listen_once()
+    if not heard:
+        print("Heard nothing. Type it.")
+        return _read_typed_line()
+    print(f"Heard: {heard}")
+    return heard
+
+
 def run(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     wait = True
@@ -71,14 +91,20 @@ def run(argv: list[str] | None = None) -> int:
         wait = False
         args = [item for item in args if item != "--no-wait"]
 
-    if not args:
-        print("Battle Buddy. No account. No cloud.")
-        print("Type a reminder. Example: remind me in 1 minute to check food stores")
-        try:
-            line = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+    if args and args[0].lower() in {"ui", "--ui"}:
+        from battlebuddy.ui.app import run_ui
+
+        return run_ui()
+
+    if args and args[0].lower() == "listen":
+        extra = args[1:]
+        line = " ".join(extra).strip() if extra else _listen_line()
+        if not line:
             return 0
+        args = line.split()
+
+    if not args:
+        line = _read_typed_line()
         if not line:
             print(_HELP)
             return 0
@@ -101,7 +127,7 @@ def run(argv: list[str] | None = None) -> int:
         return 1
 
     reminder = engine.schedule(parsed.text, parsed.delay_seconds)
-    _confirm(reminder, parsed.delay_label)
+    confirm(reminder.text, parsed.delay_label, _local_stamp(reminder.due_at), reminder.id)
     if not wait:
         print("Saved. Not watching. Run list after restart to see it.")
         return 0

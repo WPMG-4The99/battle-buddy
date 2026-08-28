@@ -1,3 +1,5 @@
-# Battle Buddy slice 1: typed reminder loop.
-# Python 3.10+ stdlib only. No extra packages.
+# Battle Buddy. Python 3.10+. Stdlib only.
 # No cloud STT. No accounts. pip install is optional.
+# TTS optional: Windows SAPI, macOS say, Linux espeak-ng.
+# STT optional: Windows Speech Recognition, or Sphinx if already installed.
+# UI: tkinter (included with python.org Windows; Linux may need python3-tk).
