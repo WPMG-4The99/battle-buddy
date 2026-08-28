@@ -35,6 +35,46 @@ class ParseCommandsTest(unittest.TestCase):
         self.assertEqual(remind.delay_seconds, 60)
 
 
+class TaskDelayParseTest(unittest.TestCase):
+    def test_existing_remind_me_line(self) -> None:
+        parsed = parse_reminder("remind me in 1 minute to check food stores")
+        assert parsed is not None
+        self.assertEqual(parsed.text, "check food stores")
+        self.assertEqual(parsed.delay_seconds, 60)
+        spoken = parse_reminder("Remind me in one minute to check food stores")
+        assert spoken is not None
+        self.assertEqual(spoken.text, "check food stores")
+        self.assertEqual(spoken.delay_seconds, 60)
+
+    def test_wood_supply_task_then_delay(self) -> None:
+        lower = parse_reminder("test wood supply in one minute")
+        punct = parse_reminder("Test wood supply in one minute.")
+        assert lower is not None
+        assert punct is not None
+        self.assertEqual(lower.text, "test wood supply")
+        self.assertEqual(punct.text, "Test wood supply")
+        self.assertEqual(lower.delay_seconds, 60)
+        self.assertEqual(punct.delay_seconds, 60)
+        self.assertEqual(lower.amount, 1)
+
+    def test_delay_then_task(self) -> None:
+        spoken = parse_reminder("in one minute test wood supply")
+        digit = parse_reminder("in 1 minute check food stores")
+        assert spoken is not None
+        assert digit is not None
+        self.assertEqual(spoken.text, "test wood supply")
+        self.assertEqual(spoken.delay_seconds, 60)
+        self.assertEqual(digit.text, "check food stores")
+        self.assertEqual(digit.delay_seconds, 60)
+
+    def test_list_snooze_clear_are_not_reminders(self) -> None:
+        self.assertIsNone(parse_reminder("list"))
+        self.assertIsNone(parse_reminder("list my reminders"))
+        self.assertIsNone(parse_reminder("snooze food stores 5 minutes"))
+        self.assertIsNone(parse_reminder("clear reminder about mines"))
+        self.assertIsNone(parse_reminder("clear all"))
+
+
 class SpokenDelayParseTest(unittest.TestCase):
     def test_spoken_one_minute_matches_digit(self) -> None:
         spoken = parse_reminder("Remind me in one minute to check food stores")
@@ -128,6 +168,17 @@ class EngineCommandsTest(unittest.TestCase):
         listed = run_line(self.engine, "list")
         self.assertEqual(len(listed.reminders), 1)
         self.assertEqual(listed.reminders[0].text, "check food stores")
+
+    def test_wood_supply_line_schedules(self) -> None:
+        result = run_line(self.engine, "Test wood supply in one minute.")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.kind, "remind")
+        assert result.parsed is not None
+        self.assertEqual(result.parsed.text, "Test wood supply")
+        self.assertEqual(result.parsed.delay_seconds, 60)
+        listed = run_line(self.engine, "list")
+        self.assertEqual(len(listed.reminders), 1)
+        self.assertEqual(listed.reminders[0].text, "Test wood supply")
 
 
 class CliCommandsTest(unittest.TestCase):

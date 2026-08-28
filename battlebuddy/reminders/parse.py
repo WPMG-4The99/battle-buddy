@@ -86,6 +86,16 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
         rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
         re.IGNORECASE,
     ),
+    # Delay first, no "remind me": "in one minute test wood supply"
+    re.compile(
+        rf"^\s*in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+(?:to\s+)?(?P<text>.+?)\s*$",
+        re.IGNORECASE,
+    ),
+    # Task first, no "remind me": "test wood supply in one minute"
+    re.compile(
+        rf"^\s*(?P<text>.+?)\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
+        re.IGNORECASE,
+    ),
 )
 
 _LIST = re.compile(
@@ -160,8 +170,15 @@ class ParsedSnooze:
 
 
 def parse_reminder(line: str) -> ParsedReminder | None:
-    raw = " ".join(line.strip().split())
+    raw = " ".join(line.strip().split()).rstrip(".")
     if not raw:
+        return None
+    if (
+        is_list_command(raw)
+        or is_clear_all(raw)
+        or parse_snooze(raw) is not None
+        or parse_clear(raw) is not None
+    ):
         return None
     for pattern in _PATTERNS:
         match = pattern.match(raw)
