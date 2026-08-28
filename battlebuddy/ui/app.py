@@ -9,9 +9,10 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import Reminder, ReminderEngine
-from battlebuddy.reminders.notify import confirm_line, fire_banner
-from battlebuddy.reminders.parse import parse_reminder
+from battlebuddy.reminders.notify import fire_banner
+from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tts import speak_async, tts_available
 
@@ -57,12 +58,13 @@ class BattleBuddyApp:
         self.engine = ReminderEngine()
         self._listening = False
         self._fire_up = False
+        self._wipe_armed = False
 
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
         self.root.configure(bg=_BG)
-        self.root.minsize(640, 520)
-        self.root.geometry("740x560")
+        self.root.minsize(640, 640)
+        self.root.geometry("740x720")
 
         self._build()
         self.root.after(_POLL_MS, self._tick)
@@ -154,7 +156,33 @@ class BattleBuddyApp:
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
-        ).pack(side="bottom", pady=16)
+        ).pack(side="bottom", pady=12)
+
+        self.clear_all_btn = tk.Button(
+            self.root,
+            text="CLEAR ALL",
+            font=("Arial", 16, "bold"),
+            bg="#2A2A2A",
+            fg=_FG,
+            activebackground="#3A3A3A",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=self._clear_all,
+        )
+        self.clear_all_btn.pack(side="bottom", fill="x", ipady=14, padx=28, pady=(4, 8))
+
+        list_frame = tk.Frame(self.root, bg=_BG)
+        list_frame.pack(fill="both", expand=True, padx=28, pady=(4, 4))
+        tk.Label(
+            list_frame,
+            text="ON DISK",
+            font=("Arial", 14, "bold"),
+            fg=_FLAME,
+            bg=_BG,
+        ).pack(anchor="w")
+        self.list_box = tk.Frame(list_frame, bg=_BG)
+        self.list_box.pack(fill="both", expand=True)
 
         self._overlay = tk.Frame(self.root, bg=_FIRE_BG)
         tk.Label(
@@ -185,23 +213,38 @@ class BattleBuddyApp:
             command=self._dismiss_fire,
         ).pack(fill="x", ipady=18, padx=48, pady=32)
 
+        self._refresh_list()
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
 
     def _lock(self) -> None:
         line = self.entry.get().strip()
-        parsed = parse_reminder(line)
-        if parsed is None:
-            self.status.config(
-                text="Could not parse that. Try: remind me in 1 minute to check food stores"
-            )
+        if is_clear_all(line):
+            self._clear_all()
             return
-        reminder = self.engine.schedule(parsed.text, parsed.delay_seconds)
-        line = confirm_line(reminder.text, parsed.delay_label)
-        due = _local_stamp(reminder.due_at)
-        self.status.config(text=f"{line}  Due {due}.")
-        speak_async(line)
+        result = run_line(self.engine, line)
+        if not result.ok:
+            if result.kind == "unknown":
+                self.status.config(
+                    text="Could not parse that. Try: remind me in 1 minute to check food stores"
+                )
+                return
+            self.status.config(text=result.message)
+            if result.speak:
+                speak_async(result.speak)
+            self._refresh_list()
+            return
+        self._wipe_armed = False
+        self.clear_all_btn.config(text="CLEAR ALL")
+        if result.kind == "remind" and result.reminder is not None:
+            due = _local_stamp(result.reminder.due_at)
+            self.status.config(text=f"{result.message}  Due {due}.")
+        else:
+            self.status.config(text=result.message)
+        if result.speak:
+            speak_async(result.speak)
+        self._refresh_list()
 
     def _speak(self) -> None:
         if self._listening or self.speak_btn is None:
@@ -224,11 +267,103 @@ class BattleBuddyApp:
             return
         self.entry.delete(0, "end")
         self.entry.insert(0, heard)
-        parsed = parse_reminder(heard)
-        if parsed is None:
-            self.status.config(text=f"Heard: {heard}. Edit, then HOLD THE LINE.")
-            return
         self._lock()
+
+    def _refresh_list(self) -> None:
+        for child in self.list_box.winfo_children():
+            child.destroy()
+        tk = self.tk
+        reminders = [
+            item
+            for item in self.engine.list_all()
+            if item.status != "cancelled"
+        ]
+        if not reminders:
+            tk.Label(
+                self.list_box,
+                text="No reminders on disk.",
+                font=("Arial", 16),
+                fg=_MUTED,
+                bg=_BG,
+                anchor="w",
+            ).pack(fill="x", pady=8)
+            return
+        for item in reminders:
+            self._add_row(item)
+
+    def _add_row(self, item: Reminder) -> None:
+        tk = self.tk
+        row = tk.Frame(self.list_box, bg=_INPUT_BG)
+        row.pack(fill="x", pady=6)
+        due = _local_stamp(item.due_at)
+        tk.Label(
+            row,
+            text=f"{item.text}  ·  {item.status.upper()}  ·  due {due}",
+            font=("Arial", 16),
+            fg=_FG,
+            bg=_INPUT_BG,
+            wraplength=640,
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(10, 4))
+        btns = tk.Frame(row, bg=_INPUT_BG)
+        btns.pack(fill="x", padx=12, pady=(0, 10))
+        tk.Button(
+            btns,
+            text="SNOOZE 5 MIN",
+            font=("Arial", 16, "bold"),
+            bg=_FLAME,
+            fg=_BG,
+            activebackground="#FF8A30",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=lambda i=item: self._snooze_item(i),
+        ).pack(side="left", expand=True, fill="x", ipady=12, padx=(0, 8))
+        tk.Button(
+            btns,
+            text="CLEAR",
+            font=("Arial", 16, "bold"),
+            bg="#2A2A2A",
+            fg=_FG,
+            activebackground="#3A3A3A",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=lambda i=item: self._clear_item(i),
+        ).pack(side="left", expand=True, fill="x", ipady=12)
+
+    def _snooze_item(self, item: Reminder) -> None:
+        result = run_line(self.engine, f"snooze {item.id} 5 minutes")
+        self.status.config(text=result.message)
+        if result.speak:
+            speak_async(result.speak)
+        self._wipe_armed = False
+        self.clear_all_btn.config(text="CLEAR ALL")
+        self._refresh_list()
+
+    def _clear_item(self, item: Reminder) -> None:
+        result = run_line(self.engine, f"clear {item.id}")
+        self.status.config(text=result.message)
+        if result.speak:
+            speak_async(result.speak)
+        self._wipe_armed = False
+        self.clear_all_btn.config(text="CLEAR ALL")
+        self._refresh_list()
+
+    def _clear_all(self) -> None:
+        if not self._wipe_armed:
+            self._wipe_armed = True
+            self.clear_all_btn.config(text="CONFIRM WIPE")
+            self.status.config(text="Confirm once. Hit CONFIRM WIPE to clear all.")
+            return
+        result = run_line(self.engine, "clear all")
+        self._wipe_armed = False
+        self.clear_all_btn.config(text="CLEAR ALL")
+        self.status.config(text=result.message)
+        if result.speak:
+            speak_async(result.speak)
+        self._refresh_list()
 
     def _tick(self) -> None:
         try:
@@ -237,6 +372,8 @@ class BattleBuddyApp:
             fired = []
         for item in fired:
             self._on_fire(item)
+        if fired:
+            self._refresh_list()
         try:
             self.root.after(_POLL_MS, self._tick)
         except Exception:
