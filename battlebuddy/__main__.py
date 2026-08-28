@@ -6,8 +6,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from battlebuddy.reminders.engine import Reminder, ReminderEngine
-from battlebuddy.reminders.notify import announce
+from battlebuddy.reminders.engine import ReminderEngine
+from battlebuddy.reminders.notify import announce, confirm
 from battlebuddy.reminders.parse import parse_reminder
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback.
@@ -38,12 +38,6 @@ def _print_list(engine: ReminderEngine) -> int:
         due = _local_stamp(item.due_at)
         print(f"  [{item.status.upper()}] {item.text}  due {due}  id {item.id}")
     return 0
-
-
-def _confirm(reminder: Reminder, delay_label: str) -> None:
-    due = _local_stamp(reminder.due_at)
-    print(f"Locked. Fires in {delay_label}: {reminder.text}")
-    print(f"Due {due}. Holding the line. id {reminder.id}")
 
 
 def _watch(engine: ReminderEngine, reminder_id: str) -> int:
@@ -101,7 +95,7 @@ def run(argv: list[str] | None = None) -> int:
         return 1
 
     reminder = engine.schedule(parsed.text, parsed.delay_seconds)
-    _confirm(reminder, parsed.delay_label)
+    confirm(reminder.text, parsed.delay_label, _local_stamp(reminder.due_at), reminder.id)
     if not wait:
         print("Saved. Not watching. Run list after restart to see it.")
         return 0
