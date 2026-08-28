@@ -13,6 +13,7 @@ from battlebuddy.voice.stt import listen_once, stt_available
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
+  python -m battlebuddy ui
   python -m battlebuddy remind me in 1 minute to check food stores
   python -m battlebuddy listen
   python -m battlebuddy list
@@ -89,6 +90,11 @@ def run(argv: list[str] | None = None) -> int:
     if "--no-wait" in args:
         wait = False
         args = [item for item in args if item != "--no-wait"]
+
+    if args and args[0].lower() in {"ui", "--ui"}:
+        from battlebuddy.ui.app import run_ui
+
+        return run_ui()
 
     if args and args[0].lower() == "listen":
         extra = args[1:]
