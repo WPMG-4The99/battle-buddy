@@ -35,6 +35,49 @@ class ParseCommandsTest(unittest.TestCase):
         self.assertEqual(remind.delay_seconds, 60)
 
 
+class SpokenDelayParseTest(unittest.TestCase):
+    def test_spoken_one_minute_matches_digit(self) -> None:
+        spoken = parse_reminder("Remind me in one minute to check food stores")
+        digit = parse_reminder("remind me in 1 minute to check food stores")
+        assert spoken is not None
+        assert digit is not None
+        self.assertEqual(spoken.text, digit.text)
+        self.assertEqual(spoken.delay_seconds, digit.delay_seconds)
+        self.assertEqual(spoken.delay_seconds, 60)
+        self.assertEqual(spoken.amount, 1)
+
+    def test_spoken_a_minute(self) -> None:
+        parsed = parse_reminder("remind me in a minute to check food stores")
+        assert parsed is not None
+        self.assertEqual(parsed.text, "check food stores")
+        self.assertEqual(parsed.delay_seconds, 60)
+
+    def test_spoken_hours_and_compounds(self) -> None:
+        two_hours = parse_reminder("remind me in two hours to check food stores")
+        assert two_hours is not None
+        self.assertEqual(two_hours.delay_seconds, 7200)
+        an_hour = parse_reminder("Remind me in an hour to scout north")
+        assert an_hour is not None
+        self.assertEqual(an_hour.delay_seconds, 3600)
+        hyphen = parse_reminder("in twenty-one minutes remind me to scout north")
+        words = parse_reminder("in twenty one minutes remind me to scout north")
+        assert hyphen is not None
+        assert words is not None
+        self.assertEqual(hyphen.delay_seconds, 21 * 60)
+        self.assertEqual(words.delay_seconds, hyphen.delay_seconds)
+        ninety = parse_reminder("remind me to check food stores in ninety minutes")
+        assert ninety is not None
+        self.assertEqual(ninety.delay_seconds, 90 * 60)
+
+    def test_spoken_snooze_delay_still_lists(self) -> None:
+        snooze = parse_snooze("Snooze food stores five minutes")
+        assert snooze is not None
+        self.assertEqual(snooze.query, "food stores")
+        self.assertEqual(snooze.delay_seconds, 300)
+        self.assertTrue(is_list_command("list my reminders"))
+        self.assertEqual(parse_clear("clear reminder about mines"), "mines")
+
+
 class EngineCommandsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,6 +117,17 @@ class EngineCommandsTest(unittest.TestCase):
         empty = run_line(restarted, "list")
         self.assertEqual(len(empty.reminders), 0)
         self.assertEqual(empty.message, "No reminders on disk.")
+
+    def test_spoken_one_minute_schedules(self) -> None:
+        spoken = run_line(self.engine, "Remind me in one minute to check food stores")
+        self.assertTrue(spoken.ok)
+        self.assertEqual(spoken.kind, "remind")
+        assert spoken.parsed is not None
+        self.assertEqual(spoken.parsed.text, "check food stores")
+        self.assertEqual(spoken.parsed.delay_seconds, 60)
+        listed = run_line(self.engine, "list")
+        self.assertEqual(len(listed.reminders), 1)
+        self.assertEqual(listed.reminders[0].text, "check food stores")
 
 
 class CliCommandsTest(unittest.TestCase):
