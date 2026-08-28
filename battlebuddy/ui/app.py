@@ -9,6 +9,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.notify import fire_banner
@@ -27,6 +28,7 @@ _INPUT_BG = "#1C1C1C"
 _MUTED = "#C4C0B4"
 _EXAMPLE = "remind me in 1 minute to check food stores"
 _POLL_MS = 250
+_DETECT_EVERY = 20
 _CLOCK_FONT = ("Arial", 40, "bold")
 
 
@@ -94,6 +96,8 @@ class BattleBuddyApp:
         self._wipe_armed = False
         self._clocks: dict[str, tuple[object, str]] = {}
         self._minute_warned: set[str] = set()
+        self._game_busy = False
+        self._detect_ticks = 0
 
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
@@ -125,7 +129,16 @@ class BattleBuddyApp:
             font=("Arial", 14),
             fg=_FG,
             bg=_BG,
-        ).pack(pady=(4, 16))
+        ).pack(pady=(4, 4))
+
+        self.game_line = tk.Label(
+            self.root,
+            text=status_line(None),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+        )
+        self.game_line.pack(pady=(0, 12))
 
         self.entry = tk.Entry(
             self.root,
@@ -468,8 +481,38 @@ class BattleBuddyApp:
             self._refresh_list()
         else:
             self._tick_clocks()
+        self._maybe_scan_game()
         try:
             self.root.after(_POLL_MS, self._tick)
+        except Exception:
+            return
+
+    def _maybe_scan_game(self) -> None:
+        """Refresh the quiet game line. Never blocks fire or countdown."""
+        self._detect_ticks += 1
+        if self._detect_ticks != 1 and self._detect_ticks % _DETECT_EVERY != 0:
+            return
+        if self._game_busy:
+            return
+        self._game_busy = True
+        threading.Thread(target=self._scan_game_worker, daemon=True).start()
+
+    def _scan_game_worker(self) -> None:
+        try:
+            name = detect_game()
+        except Exception:
+            name = None
+        try:
+            self.root.after(0, lambda n=name: self._apply_game(n))
+        except Exception:
+            self._game_busy = False
+
+    def _apply_game(self, name: str | None) -> None:
+        self._game_busy = False
+        text = status_line(name)
+        try:
+            if str(self.game_line.cget("text")) != text:
+                self.game_line.config(text=text)
         except Exception:
             return
 

@@ -59,6 +59,18 @@ class DetectPickTest(unittest.TestCase):
         self.assertEqual(status_line("  "), "no game detected")
 
 
+class UiImportSafeTest(unittest.TestCase):
+    def test_countdown_and_buttons_still_import(self) -> None:
+        from battlebuddy.ui import app as ui_app
+
+        self.assertEqual(ui_app.format_countdown(47), "0:47")
+        source = Path(ui_app.__file__).read_text(encoding="utf-8")
+        self.assertIn('text="SUBMIT"', source)
+        self.assertIn('text="SPEAK"', source)
+        self.assertIn("self._tick_clocks()", source)
+        self.assertIn("play_ticks_async", source)
+
+
 class TasklistParseTest(unittest.TestCase):
     def test_windows_csv_first_column(self) -> None:
         text = (

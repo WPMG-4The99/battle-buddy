@@ -83,6 +83,7 @@ skills/battle-buddy/SKILL.md   Hermes skill: remind, list, snooze, clear
 battlebuddy/memory/            local JSON store
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
+battlebuddy/game_detect/       local process scan. No Steam.
 battlebuddy/ui/                high-contrast window
 battlebuddy/__main__.py        typed CLI
 docs/                          PRD, agent loop, kickoff commands
