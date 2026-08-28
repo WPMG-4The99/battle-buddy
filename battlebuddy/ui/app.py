@@ -10,7 +10,7 @@ import threading
 from datetime import datetime, timezone
 
 from battlebuddy.reminders.commands import run_line
-from battlebuddy.reminders.engine import Reminder, ReminderEngine
+from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.voice.stt import listen_once, stt_available
@@ -25,6 +25,37 @@ _INPUT_BG = "#1C1C1C"
 _MUTED = "#C4C0B4"
 _EXAMPLE = "remind me in 1 minute to check food stores"
 _POLL_MS = 250
+_CLOCK_FONT = ("Arial", 40, "bold")
+
+
+def remaining_seconds(due_at: str, now: datetime | None = None) -> int:
+    """Whole seconds left until due. Floor at 0. Local display helper."""
+    moment = now if now is not None else datetime.now(timezone.utc)
+    due = datetime.fromisoformat(due_at)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    else:
+        due = due.astimezone(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    else:
+        moment = moment.astimezone(timezone.utc)
+    left = int((due - moment).total_seconds())
+    return left if left > 0 else 0
+
+
+def format_countdown(seconds: int) -> str:
+    """ADHD clock: 0:47 or 12:05. Minutes can pass 60."""
+    remaining = max(0, int(seconds))
+    minutes, secs = divmod(remaining, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def row_clock_text(status: str, due_at: str, now: datetime | None = None) -> str:
+    """Pending rows countdown. Fired/cancelled keep FIRED / CANCELLED."""
+    if status != STATUS_PENDING:
+        return status.upper()
+    return format_countdown(remaining_seconds(due_at, now))
 
 
 def _local_stamp(iso: str) -> str:
