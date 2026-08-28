@@ -114,6 +114,27 @@ _CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*clear\s+(?P<query>.+?)\s*$", re.IGNORECASE),
 )
 
+# Wispr / spoken leftovers. Leading only. Longer phrases first.
+_LEADING_FILLER = re.compile(
+    r"^(?:i\s+need\s+to|set\s+a\s+reminder|real\s+quick|can\s+you|please)\s+",
+    re.IGNORECASE,
+)
+_LEADING_TO = re.compile(r"^to\s+", re.IGNORECASE)
+
+
+def _strip_leading_fillers(raw: str) -> str:
+    text = raw
+    stripped_any = False
+    while True:
+        updated, count = _LEADING_FILLER.subn("", text, count=1)
+        if count == 0:
+            break
+        stripped_any = True
+        text = updated.strip()
+    if stripped_any:
+        text = _LEADING_TO.sub("", text).strip()
+    return text
+
 
 def _amount_to_int(raw: str) -> int | None:
     token = raw.strip().lower()
@@ -171,6 +192,9 @@ class ParsedSnooze:
 
 def parse_reminder(line: str) -> ParsedReminder | None:
     raw = " ".join(line.strip().split()).rstrip(".")
+    if not raw:
+        return None
+    raw = _strip_leading_fillers(raw)
     if not raw:
         return None
     if (
