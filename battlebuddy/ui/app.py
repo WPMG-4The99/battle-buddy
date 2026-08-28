@@ -63,8 +63,8 @@ class BattleBuddyApp:
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
         self.root.configure(bg=_BG)
-        self.root.minsize(640, 640)
-        self.root.geometry("740x720")
+        self.root.minsize(640, 720)
+        self.root.geometry("760x900")
 
         self._build()
         self.root.after(_POLL_MS, self._tick)
@@ -82,7 +82,7 @@ class BattleBuddyApp:
             font=("Arial", 28, "bold"),
             fg=_FLAME,
             bg=_BG,
-        ).pack(pady=(28, 0))
+        ).pack(pady=(16, 0))
 
         tk.Label(
             self.root,
@@ -181,8 +181,29 @@ class BattleBuddyApp:
             fg=_FLAME,
             bg=_BG,
         ).pack(anchor="w")
-        self.list_box = tk.Frame(list_frame, bg=_BG)
-        self.list_box.pack(fill="both", expand=True)
+        self.list_canvas = tk.Canvas(
+            list_frame,
+            bg=_BG,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.list_box = tk.Frame(self.list_canvas, bg=_BG)
+        self._list_window = self.list_canvas.create_window(
+            (0, 0),
+            window=self.list_box,
+            anchor="nw",
+        )
+        self.list_canvas.pack(fill="both", expand=True)
+        self.list_box.bind(
+            "<Configure>",
+            lambda _event: self.list_canvas.configure(
+                scrollregion=self.list_canvas.bbox("all")
+            ),
+        )
+        self.list_canvas.bind("<Configure>", self._size_list_window)
+        self.list_canvas.bind("<Button-4>", self._wheel)
+        self.list_canvas.bind("<Button-5>", self._wheel)
+        self.list_canvas.bind("<MouseWheel>", self._wheel)
 
         self._overlay = tk.Frame(self.root, bg=_FIRE_BG)
         tk.Label(
@@ -217,6 +238,19 @@ class BattleBuddyApp:
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
+
+    def _size_list_window(self, event: object) -> None:
+        width = int(getattr(event, "width", 0) or 0)
+        if width:
+            self.list_canvas.itemconfigure(self._list_window, width=width)
+
+    def _wheel(self, event: object) -> None:
+        delta = int(getattr(event, "delta", 0) or 0)
+        num = int(getattr(event, "num", 0) or 0)
+        if num == 4 or delta > 0:
+            self.list_canvas.yview_scroll(-1, "units")
+        elif num == 5 or delta < 0:
+            self.list_canvas.yview_scroll(1, "units")
 
     def _lock(self) -> None:
         line = self.entry.get().strip()
@@ -290,11 +324,18 @@ class BattleBuddyApp:
             return
         for item in reminders:
             self._add_row(item)
+        self._bind_wheel(self.list_box)
+
+    def _bind_wheel(self, widget: object) -> None:
+        for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
+            widget.bind(seq, self._wheel)
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
 
     def _add_row(self, item: Reminder) -> None:
         tk = self.tk
-        row = tk.Frame(self.list_box, bg=_INPUT_BG)
-        row.pack(fill="x", pady=6)
+        row = tk.Frame(self.list_box, bg=_INPUT_BG, highlightthickness=2, highlightbackground=_FLAME)
+        row.pack(fill="x", pady=8)
         due = _local_stamp(item.due_at)
         tk.Label(
             row,
