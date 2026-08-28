@@ -274,6 +274,8 @@ class BattleBuddyApp:
         if result.kind == "remind" and result.reminder is not None:
             due = _local_stamp(result.reminder.due_at)
             self.status.config(text=f"{result.message}  Due {due}.")
+            self.entry.delete(0, "end")
+            self.entry.focus_set()
         else:
             self.status.config(text=result.message)
         if result.speak:
