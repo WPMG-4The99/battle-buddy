@@ -18,6 +18,10 @@ _UNIT_SECONDS: dict[str, int] = {
     "hours": 3600,
     "hr": 3600,
     "hrs": 3600,
+    "day": 86400,
+    "days": 86400,
+    "week": 604800,
+    "weeks": 604800,
 }
 
 _ONES = (
@@ -69,31 +73,35 @@ _TENS_ALT = "|".join(_TENS)
 _SPOKEN_AMOUNT = (
     rf"(?:an|a|{_TEENS_ALT}|{_ONES_ALT}|(?:{_TENS_ALT})(?:[\s-](?:{_ONES_ALT}))?)"
 )
-_AMOUNT = rf"(?:\d+|{_SPOKEN_AMOUNT})"
+_SIMPLE_AMOUNT = rf"(?:\d+(?:\.\d+)?|{_SPOKEN_AMOUNT})"
+_AND_A_HALF_AMOUNT = rf"(?:{_SIMPLE_AMOUNT}\s+and\s+a\s+half)"
+_FRACTION_AMOUNT = r"(?:half\s+an?|(?:a\s+)?quarter(?:\s+of(?:\s+an?)?)?)"
+_AMOUNT = rf"(?:{_AND_A_HALF_AMOUNT}|{_FRACTION_AMOUNT}|{_SIMPLE_AMOUNT})"
 
-_UNIT = r"seconds?|secs?|minutes?|mins?|hours?|hrs?"
+_UNIT = r"seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?"
+_DELAY = rf"(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})(?P<half>\s+and\s+a\s+half)?"
 
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"^\s*remind\s+me\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+to\s+(?P<text>.+?)\s*$",
+        rf"^\s*remind\s+me\s+in\s+{_DELAY}\s+to\s+(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+remind\s+me(?:\s+to)?\s+(?P<text>.+?)\s*$",
+        rf"^\s*in\s+{_DELAY}\s+remind\s+me(?:\s+to)?\s+(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
+        rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+{_DELAY}\s*$",
         re.IGNORECASE,
     ),
     # Delay first, no "remind me": "in one minute test wood supply"
     re.compile(
-        rf"^\s*in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s+(?:to\s+)?(?P<text>.+?)\s*$",
+        rf"^\s*in\s+{_DELAY}\s+(?:to\s+)?(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     # Task first, no "remind me": "test wood supply in one minute"
     re.compile(
-        rf"^\s*(?P<text>.+?)\s+in\s+(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
+        rf"^\s*(?P<text>.+?)\s+in\s+{_DELAY}\s*$",
         re.IGNORECASE,
     ),
 )
@@ -104,7 +112,7 @@ _LIST = re.compile(
 )
 _CLEAR_ALL = re.compile(r"^\s*clear\s+all\s*$", re.IGNORECASE)
 _SNOOZE = re.compile(
-    rf"^\s*snooze\s+(?P<query>.+?)\s+(?:for\s+)?(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})\s*$",
+    rf"^\s*snooze\s+(?P<query>.+?)\s+(?:for\s+)?{_DELAY}\s*$",
     re.IGNORECASE,
 )
 _CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -136,11 +144,8 @@ def _strip_leading_fillers(raw: str) -> str:
     return text
 
 
-def _amount_to_int(raw: str) -> int | None:
-    token = raw.strip().lower()
-    if token.isdigit():
-        return int(token)
-    parts = re.split(r"[\s-]+", token)
+def _spoken_to_int(raw: str) -> int | None:
+    parts = re.split(r"[\s-]+", raw)
     if len(parts) == 1:
         return _WORD_NUMBERS.get(parts[0])
     if len(parts) == 2:
@@ -157,20 +162,63 @@ def _amount_to_int(raw: str) -> int | None:
     return None
 
 
-def delay_label(amount: int, unit: str) -> str:
+def _amount_to_number(raw: str) -> float | None:
+    token = raw.strip().lower()
+    if not token:
+        return None
+    and_half = re.fullmatch(r"(.+?)\s+and\s+a\s+half", token)
+    if and_half is not None:
+        base = _amount_to_number(and_half.group(1))
+        if base is None:
+            return None
+        return base + 0.5
+    if re.fullmatch(r"half(?:\s+an?)?", token):
+        return 0.5
+    if re.fullmatch(r"(?:a\s+)?quarter(?:\s+of(?:\s+an?)?)?", token):
+        return 0.25
+    if re.fullmatch(r"\d+(?:\.\d+)?", token):
+        value = float(token)
+        return value if value > 0 else None
+    spoken = _spoken_to_int(token)
+    if spoken is None:
+        return None
+    return float(spoken)
+
+
+def _store_amount(value: float) -> int | float:
+    if value == int(value):
+        return int(value)
+    return value
+
+
+def _delay_from_match(match: re.Match[str]) -> tuple[int | float, str, int] | None:
+    amount = _amount_to_number(match.group("n"))
+    if amount is None or amount <= 0:
+        return None
+    unit_key = match.group("unit").lower()
+    if match.group("half"):
+        amount += 0.5
+    seconds = int(round(amount * _UNIT_SECONDS[unit_key]))
+    if seconds < 1:
+        return None
+    return _store_amount(amount), unit_key, seconds
+
+
+def delay_label(amount: int | float, unit: str) -> str:
+    display: int | float = _store_amount(float(amount))
     label_unit = unit
-    if amount == 1 and label_unit.endswith("s"):
+    if display == 1 and label_unit.endswith("s"):
         label_unit = label_unit[:-1]
-    if amount != 1 and not label_unit.endswith("s"):
+    if display != 1 and not label_unit.endswith("s"):
         label_unit = label_unit + "s"
-    return f"{amount} {label_unit}"
+    return f"{display} {label_unit}"
 
 
 @dataclass(frozen=True)
 class ParsedReminder:
     text: str
     delay_seconds: int
-    amount: int
+    amount: int | float
     unit: str
 
     @property
@@ -182,7 +230,7 @@ class ParsedReminder:
 class ParsedSnooze:
     query: str
     delay_seconds: int
-    amount: int
+    amount: int | float
     unit: str
 
     @property
@@ -208,12 +256,11 @@ def parse_reminder(line: str) -> ParsedReminder | None:
         match = pattern.match(raw)
         if not match:
             continue
-        amount = _amount_to_int(match.group("n"))
-        unit_key = match.group("unit").lower()
+        delay = _delay_from_match(match)
         text = match.group("text").strip().rstrip(".")
-        if amount is None or amount < 1 or not text:
+        if delay is None or not text:
             return None
-        seconds = amount * _UNIT_SECONDS[unit_key]
+        amount, unit_key, seconds = delay
         return ParsedReminder(
             text=text,
             delay_seconds=seconds,
@@ -239,13 +286,13 @@ def parse_snooze(line: str) -> ParsedSnooze | None:
     if not match:
         return None
     query = match.group("query").strip()
-    amount = _amount_to_int(match.group("n"))
-    unit_key = match.group("unit").lower()
-    if amount is None or amount < 1 or not query:
+    delay = _delay_from_match(match)
+    if delay is None or not query:
         return None
+    amount, unit_key, seconds = delay
     return ParsedSnooze(
         query=query,
-        delay_seconds=amount * _UNIT_SECONDS[unit_key],
+        delay_seconds=seconds,
         amount=amount,
         unit=unit_key,
     )
