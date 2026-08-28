@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
@@ -244,6 +246,7 @@ class BattleBuddyApp:
         sys.stdout.write("\a")
         sys.stdout.flush()
         speak_async(f"Battle Buddy. Fire. {reminder.text}")
+        raise_for_fire(self.root)
         self._show_fire(reminder.text)
         raise_for_fire(self.root)
 
@@ -266,15 +269,26 @@ class BattleBuddyApp:
 def raise_for_fire(root: object) -> None:
     """Bring the window forward when a reminder is due, even if it sat in back."""
     try:
-        if str(root.state()) == "iconic":
-            root.deiconify()
-        root.lift()
-        root.attributes("-topmost", True)
-        root.focus_force()
         root.bell()
-        root.update_idletasks()
     except Exception:
-        return
+        pass
+    for action in (
+        lambda: root.deiconify(),
+        lambda: root.wm_state("normal"),
+        lambda: root.attributes("-topmost", True),
+        lambda: root.lift(),
+        lambda: root.focus_force(),
+        lambda: root.update(),
+    ):
+        try:
+            action()
+        except Exception:
+            continue
+    _raise_windows(root)
+    _raise_linux()
+
+
+def _raise_windows(root: object) -> None:
     if sys.platform != "win32":
         return
     try:
@@ -283,8 +297,33 @@ def raise_for_fire(root: object) -> None:
         hwnd = int(root.winfo_id())
         parent = ctypes.windll.user32.GetParent(hwnd)
         target = parent or hwnd
-        ctypes.windll.user32.FlashWindow(target, True)
         ctypes.windll.user32.ShowWindow(target, 9)
+        ctypes.windll.user32.FlashWindow(target, True)
         ctypes.windll.user32.SetForegroundWindow(target)
     except Exception:
+        return
+
+
+def _raise_linux() -> None:
+    if sys.platform == "win32":
+        return
+    xdotool = shutil.which("xdotool")
+    if xdotool is None:
+        return
+    try:
+        subprocess.run(
+            [
+                xdotool,
+                "search",
+                "--name",
+                "Battle Buddy",
+                "windowmap",
+                "windowactivate",
+                "windowraise",
+            ],
+            timeout=3,
+            check=False,
+            capture_output=True,
+        )
+    except (OSError, subprocess.SubprocessError):
         return
