@@ -10,7 +10,7 @@ import threading
 from datetime import datetime, timezone
 
 from battlebuddy.reminders.commands import run_line
-from battlebuddy.reminders.engine import Reminder, ReminderEngine
+from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.voice.stt import listen_once, stt_available
@@ -25,6 +25,37 @@ _INPUT_BG = "#1C1C1C"
 _MUTED = "#C4C0B4"
 _EXAMPLE = "remind me in 1 minute to check food stores"
 _POLL_MS = 250
+_CLOCK_FONT = ("Arial", 40, "bold")
+
+
+def remaining_seconds(due_at: str, now: datetime | None = None) -> int:
+    """Whole seconds left until due. Floor at 0. Local display helper."""
+    moment = now if now is not None else datetime.now(timezone.utc)
+    due = datetime.fromisoformat(due_at)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    else:
+        due = due.astimezone(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    else:
+        moment = moment.astimezone(timezone.utc)
+    left = int((due - moment).total_seconds())
+    return left if left > 0 else 0
+
+
+def format_countdown(seconds: int) -> str:
+    """ADHD clock: 0:47 or 12:05. Minutes can pass 60."""
+    remaining = max(0, int(seconds))
+    minutes, secs = divmod(remaining, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def row_clock_text(status: str, due_at: str, now: datetime | None = None) -> str:
+    """Pending rows countdown. Fired/cancelled keep FIRED / CANCELLED."""
+    if status != STATUS_PENDING:
+        return status.upper()
+    return format_countdown(remaining_seconds(due_at, now))
 
 
 def _local_stamp(iso: str) -> str:
@@ -59,6 +90,7 @@ class BattleBuddyApp:
         self._listening = False
         self._fire_up = False
         self._wipe_armed = False
+        self._clocks: dict[str, tuple[object, str]] = {}
 
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
@@ -306,6 +338,7 @@ class BattleBuddyApp:
         self._lock()
 
     def _refresh_list(self) -> None:
+        self._clocks = {}
         for child in self.list_box.winfo_children():
             child.destroy()
         tk = self.tk
@@ -338,17 +371,28 @@ class BattleBuddyApp:
         tk = self.tk
         row = tk.Frame(self.list_box, bg=_INPUT_BG, highlightthickness=2, highlightbackground=_FLAME)
         row.pack(fill="x", pady=8)
-        due = _local_stamp(item.due_at)
         tk.Label(
             row,
-            text=f"{item.text}  ·  {item.status.upper()}  ·  due {due}",
+            text=item.text,
             font=("Arial", 16),
             fg=_FG,
             bg=_INPUT_BG,
             wraplength=640,
             justify="left",
             anchor="w",
-        ).pack(fill="x", padx=12, pady=(10, 4))
+        ).pack(fill="x", padx=12, pady=(10, 2))
+        pending = item.status == STATUS_PENDING
+        clock = tk.Label(
+            row,
+            text=row_clock_text(item.status, item.due_at),
+            font=_CLOCK_FONT,
+            fg=_FLAME if pending else _FIRE_FG,
+            bg=_INPUT_BG,
+            anchor="w",
+        )
+        clock.pack(fill="x", padx=12, pady=(0, 4))
+        if pending:
+            self._clocks[item.id] = (clock, item.due_at)
         btns = tk.Frame(row, bg=_INPUT_BG)
         btns.pack(fill="x", padx=12, pady=(0, 10))
         tk.Button(
@@ -417,10 +461,25 @@ class BattleBuddyApp:
             self._on_fire(item)
         if fired:
             self._refresh_list()
+        else:
+            self._tick_clocks()
         try:
             self.root.after(_POLL_MS, self._tick)
         except Exception:
             return
+
+    def _tick_clocks(self) -> None:
+        """Rewrite pending clocks about once per second. Fired rows stay FIRED."""
+        if not self._clocks:
+            return
+        now = datetime.now(timezone.utc)
+        for label, due_at in self._clocks.values():
+            text = format_countdown(remaining_seconds(due_at, now))
+            try:
+                if str(label.cget("text")) != text:
+                    label.config(text=text)
+            except Exception:
+                continue
 
     def _on_fire(self, reminder: Reminder) -> None:
         sys.stdout.write(fire_banner(reminder.text) + "\n")
