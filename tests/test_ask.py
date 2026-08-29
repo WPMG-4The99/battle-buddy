@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from battlebuddy.databank.search import ask_pages, search_folder
 from battlebuddy.databank.store import DatabankStore
+from battlebuddy.databank.wiki import ask_or_hunt
 from battlebuddy.ui import app as ui_app
 
 
@@ -127,8 +128,10 @@ class SearchFolderTest(unittest.TestCase):
         store = DatabankStore(Path(tmp.name))
         store.save_page(None, "https://example.com/food", "Food", "Store berries in the granary.")
         with patch("battlebuddy.databank.fetch.fetch_page") as fetch:
-            result = ask_pages(store, None, "berries")
+            with patch("battlebuddy.databank.wiki.search_wiki_urls") as hunt:
+                result = ask_or_hunt(store, None, "berries")
         fetch.assert_not_called()
+        hunt.assert_not_called()
         self.assertIn("berries", result.output().lower())
 
 
@@ -141,6 +144,8 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("Lock a time reminder here", source)
         self.assertIn("Paste a wiki URL here", source)
         self.assertIn("ask_pages", source)
+        self.assertIn("ask_or_hunt", source)
+        self.assertIn("Looking on the wiki.", source)
         self.assertIn("self.ask_entry", source)
         self.assertIn("self.ask_out", source)
         self.assertIn("self._show_ask", source)
