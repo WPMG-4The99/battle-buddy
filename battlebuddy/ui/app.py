@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
+from battlebuddy.databank.wiki import ask_or_hunt, wiki_home_for
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -127,6 +128,7 @@ class BattleBuddyApp:
         self.databank = DatabankStore()
         self._game_name: str | None = None
         self._fetching = False
+        self._asking = False
 
         self.root.minsize(640, 640)
         self.root.geometry("760x900")
@@ -563,12 +565,51 @@ class BattleBuddyApp:
             ).pack(fill="x", pady=1)
 
     def _ask(self) -> None:
-        """Search saved page text in the current game folder. Local only."""
+        """Local retrieve first. Hunt the game wiki in the background on a miss."""
+        if self._asking:
+            return
         question = str(self.ask_entry.get()).strip()
         result = ask_pages(self.databank, self._game_name, question)
-        self._show_ask(ask_visible_message(result))
-        if not result.ok:
+        if result.hits or not result.ok or wiki_home_for(self._game_name, self.databank) is None:
+            self._show_ask(ask_visible_message(result))
+            if result.ok:
+                self._clear_ask_box()
             return
+        self._asking = True
+        try:
+            self.ask_btn.config(state="disabled")
+        except Exception:
+            pass
+        self._show_ask("Looking on the wiki.")
+        if result.ok:
+            self._clear_ask_box()
+        game = self._game_name
+        threading.Thread(target=self._ask_hunt_worker, args=(question, game), daemon=True).start()
+
+    def _ask_hunt_worker(self, question: str, game: str | None) -> None:
+        try:
+            result = ask_or_hunt(self.databank, game, question)
+        except Exception:
+            result = None
+        try:
+            self.root.after(0, lambda r=result: self._ask_hunt_done(r))
+        except Exception:
+            self._asking = False
+
+    def _ask_hunt_done(self, result: object) -> None:
+        self._asking = False
+        try:
+            self.ask_btn.config(state="normal")
+        except Exception:
+            pass
+        if result is None:
+            self._show_ask("No match on the wiki. Nothing invented.")
+            self._refresh_sources()
+            return
+        self._show_ask(ask_visible_message(result))
+        self._refresh_sources()
+
+    def _clear_ask_box(self) -> None:
         try:
             self.ask_entry.delete(0, "end")
             self.ask_entry.focus_set()
