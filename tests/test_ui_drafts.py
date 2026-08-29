@@ -28,6 +28,14 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn("self.ask_entry", source)
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
+        self.assertIn('geometry("760x900")', source)
+        self.assertNotIn('geometry("760x1080")', source)
+        self.assertNotIn("760x1080", source)
+        build = source.split("def _build(self)")[1].split("def _field_caption")[0]
+        self.assertLess(build.find("self._build_databank()"), build.find("self._build_ask()"))
+        databank = source.split("def _build_databank")[1].split("def _build_ask")[0]
+        self.assertNotIn('side="bottom"', databank)
+        self.assertIn('side="bottom"', build)
 
 
 class DraftBoxesLiveTest(unittest.TestCase):
@@ -77,6 +85,33 @@ class DraftBoxesLiveTest(unittest.TestCase):
             self.assertIn("SUBMIT", labels)
             self.assertIn("ADD / FETCH", labels)
             self.assertIn("ASK", labels)
+            app.root.deiconify()
+            app.root.update()
+            titles = (
+                "REMINDER",
+                "URL",
+                "ASK YOUR QUESTION",
+                "ON DISK",
+                "CLEAR ALL",
+            )
+            order = _label_root_y(app.root, titles)
+            self.assertEqual(set(order), set(titles))
+            ranked = [name for name, _y in sorted(order.items(), key=lambda item: item[1])]
+            self.assertEqual(
+                ranked,
+                [
+                    "REMINDER",
+                    "URL",
+                    "ASK YOUR QUESTION",
+                    "ON DISK",
+                    "CLEAR ALL",
+                ],
+            )
+            self.assertLess(order["URL"], order["CLEAR ALL"])
+            self.assertLess(order["ASK YOUR QUESTION"], order["ON DISK"])
+            geo = str(app.root.geometry()).split("+", 1)[0]
+            height = int(geo.split("x")[1])
+            self.assertLessEqual(height, 900)
             app.entry.insert(0, "draft reminder")
             app.url_entry.insert(0, "https://example.com/wiki")
             app.ask_entry.insert(0, "where is food")
@@ -92,6 +127,30 @@ class DraftBoxesLiveTest(unittest.TestCase):
         self.assertEqual(memory.read_text(encoding="utf-8").strip(), '{"reminders": []}')
         self.assertTrue(sources.is_file())
         self.assertEqual(sources.read_text(encoding="utf-8").strip(), "[]")
+
+
+def _label_root_y(widget: object, titles: tuple[str, ...]) -> dict[str, int]:
+    found: dict[str, int] = {}
+
+    def walk(node: object) -> None:
+        try:
+            text = str(node.cget("text"))
+        except Exception:
+            text = ""
+        if text in titles and text not in found:
+            try:
+                found[text] = int(node.winfo_rooty())
+            except Exception:
+                pass
+        try:
+            children = node.winfo_children()
+        except Exception:
+            return
+        for child in children:
+            walk(child)
+
+    walk(widget)
+    return found
 
 
 def _visible_label_texts(widget: object) -> list[str]:
