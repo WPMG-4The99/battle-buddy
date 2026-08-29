@@ -33,17 +33,9 @@ _LANG_SUFFIX = (
     "/uk",
     "/el",
 )
-# Strong production cues only. Bare "iron" / "planks" on a militia page is not a recipe.
-_CRAFT_CUES = (
-    "obtained",
-    "produced",
-    "blacksmith",
-    "workshop",
-    "backyard",
-    "craft",
-    "obtain",
-    "produce",
-)
+# ASK-snippet how-to coverage only. Lone "blacksmith" on a militia sidebar is not a recipe.
+_STRONG_CRAFT_WORDS = ("obtained", "produced", "backyard")
+_STRONG_CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _HOWTO = {"how", "start", "produce", "production", "make", "craft", "obtain"}
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
 _HTML_TAG = re.compile(r"<[^>]+>")
@@ -196,7 +188,7 @@ def should_hunt(
     question: str,
     result: AskResult,
 ) -> bool:
-    """Hunt when local text is a miss, or a how-to with no strong craft cue."""
+    """Hunt when local text is a miss, or a how-to snippet lacks a strong recipe cue."""
     if not result.ok:
         return False
     if local_covers(store, game, question, result):
@@ -210,7 +202,7 @@ def local_covers(
     question: str,
     result: AskResult,
 ) -> bool:
-    """How-to coverage is noun + strong craft cue on ASK hit snippets. Not full page text."""
+    """How-to coverage is noun + strong cue on the ASK snippet. Not the full page dump."""
     if not result.hits:
         return False
     if not _is_howto(question):
@@ -483,7 +475,7 @@ def _lead_with_search_recipe(
     search_hits: list[SearchHit],
     nouns: list[str],
 ) -> AskResult:
-    """MediaWiki snippet with obtained/blacksmith leads. No invent. No lowercase clip."""
+    """MediaWiki snippet with obtained / blacksmith's workshop leads. No invent."""
     recipes: list[Hit] = []
     seen: set[str] = set()
     for hit in rank_search_hits(search_hits, nouns):
@@ -513,7 +505,17 @@ def _militia_or_approval(hit: Hit) -> bool:
 
 
 def _has_craft(blob: str) -> bool:
-    return any(cue in blob for cue in _CRAFT_CUES)
+    """obtained / produced / blacksmith's workshop / backyard. Lone blacksmith does not count."""
+    words = _cue_words(blob)
+    if set(words) & set(_STRONG_CRAFT_WORDS):
+        return True
+    pairs = set(_STRONG_CRAFT_PAIRS)
+    return any((words[i], words[i + 1]) in pairs for i in range(len(words) - 1))
+
+
+def _cue_words(blob: str) -> list[str]:
+    text = (blob or "").lower().replace("'", "").replace("’", "")
+    return _WORD.findall(text)
 
 
 def _has_any_word(blob: str, words: list[str]) -> bool:

@@ -27,13 +27,21 @@ from battlebuddy.databank.wiki import (
 
 _SPEAR_Q = "How do I start a spear production?"
 _RECIPE = "Spears: obtained from Planks and Iron Slabs at the Blacksmith's Workshop backyard extension."
-_APPROVAL = "Spear Militia unlocks with an Approval perk. Higher approval gives more militia."
-# Real wiki Warfare mentions spear AND iron/armor. That must not count as a recipe.
+# Live Approval/Warfare: spear + sidebar blacksmith. iron=0, obtained=0. Not a recipe.
+_APPROVAL = (
+    "Spear Militia unlocks with an Approval perk. "
+    "See also: Blacksmith, Warfare. "
+    "Higher approval gives more militia."
+)
 _WARFARE = (
     "Spear Militia is a unit in the warfare table. "
+    "See also: Blacksmith, Burgage Plot, Approval. "
     "The barracks lists spear, bow, and polearm militia. "
-    "Iron armor, iron helmets, and spears are issued to militia. "
-    "Higher approval gives more militia. Retinue wear better iron plate and mail."
+    "Related pages: Blacksmith, Militia, Retinue. "
+    "Higher approval gives more militia."
+)
+_LOCAL_RECIPE = (
+    "Spears are obtained from planks at the Blacksmith's Workshop backyard extension."
 )
 
 
@@ -179,8 +187,10 @@ class WikiHuntHttpTest(unittest.TestCase):
         weak = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
         self.assertTrue(weak.hits)
         self.assertIn("spear", weak.output().lower())
-        self.assertIn("iron", weak.output().lower())
-        self.assertNotIn("blacksmith", weak.output().lower())
+        self.assertIn("blacksmith", weak.output().lower())
+        self.assertNotIn("obtained", weak.output().lower())
+        self.assertNotIn("blacksmiths workshop", weak.output().lower().replace("'", ""))
+        self.assertNotIn("backyard", weak.output().lower())
         result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
         blob = result.output().lower()
         self.assertIn("spear", blob)
@@ -193,7 +203,7 @@ class WikiHuntHttpTest(unittest.TestCase):
         self.assertIn("obtained", result.hits[0].snippet.lower())
         self.assertTrue(any("srsearch=spears" in path for path in self.hits))
 
-    def test_real_shaped_warfare_with_iron_still_hunts_recipe(self) -> None:
+    def test_live_shaped_militia_sidebar_blacksmith_still_hunts_recipe(self) -> None:
         self._save_homepage()
         self.store.save_page(
             "Manor Lords",
@@ -216,8 +226,9 @@ class WikiHuntHttpTest(unittest.TestCase):
         local = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
         self.assertTrue(local.hits)
         self.assertIn("spear", local.output().lower())
-        self.assertIn("iron", local.output().lower())
-        self.assertNotIn("blacksmith", local.output().lower())
+        self.assertIn("blacksmith", local.output().lower())
+        self.assertNotIn("obtained", local.output().lower())
+        self.assertNotIn("iron", local.output().lower())
         titles = {hit.title.lower() for hit in local.hits}
         self.assertTrue(titles & {"approval", "warfare", "warfare/nl"})
         result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
@@ -261,7 +272,7 @@ class WikiHuntHttpTest(unittest.TestCase):
             "Manor Lords",
             f"{self.base}/wiki/Spear",
             "Spear",
-            "A spear is a hunting weapon. Craft a spear at the smithy.",
+            _LOCAL_RECIPE,
         )
         with patch("battlebuddy.databank.fetch.fetch_page") as fetch:
             with patch("battlebuddy.databank.wiki.search_wiki_urls") as hunt:
