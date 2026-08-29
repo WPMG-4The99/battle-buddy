@@ -13,16 +13,20 @@ _CRAFT_WORDS = ("obtained", "produced", "backyard")
 _CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _MAX_RECIPE_WORDS = 30
 # Flattened wiki produce rows: "1 Iron Slab and 1 Plank into 2 Spears"
+# No IGNORECASE — product stays capitalized so trailing "or" is not swallowed.
 _PRODUCE = re.compile(
     r"(?P<inputs>\d+\s+[A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,3}"
-    r"(?:\s+and\s+\d+\s+[A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,3})*)"
-    r"\s+into\s+(?P<count>\d+)\s+"
-    r"(?P<product>[A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,2})",
-    re.IGNORECASE,
+    r"(?:\s+(?:and|And|AND)\s+\d+\s+[A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,3})*)"
+    r"\s+(?:into|Into|INTO)\s+(?P<count>\d+)\s+"
+    r"(?P<product>[A-Z][A-Za-z']*(?:\s+[A-Z][A-Za-z']*){0,2})"
 )
 # Row header before cost digits: Blacksmith 8 / Blacksmith's Workshop 8
 _ROW_BUILDING = re.compile(
     r"\b(?P<name>[A-Z][A-Za-z]+(?:'s(?:\s+Workshop)?)?)\s+\d+"
+)
+# Already-extracted line: "Blacksmith: 1 Iron Slab ..."
+_LABELED_SHOP = re.compile(
+    r"\b(?P<name>[A-Z][A-Za-z]+(?:'s(?:\s+Workshop)?)?):\s*$"
 )
 _NOT_BUILDING = {
     "affinities",
@@ -100,6 +104,12 @@ def _table_recipe(text: str, nouns: list[str]) -> str | None:
 
 def _nearest_building(prefix: str) -> str | None:
     """Last shop-like token before the produce clause (Blacksmith, Workshop)."""
+    labeled = _LABELED_SHOP.search(prefix)
+    if labeled:
+        name = " ".join(labeled.group("name").split())
+        words = _cue_words(name)
+        if words and not any(word in _NOT_BUILDING for word in words):
+            return name
     found: list[str] = []
     for match in _ROW_BUILDING.finditer(prefix):
         name = " ".join(match.group("name").split())
