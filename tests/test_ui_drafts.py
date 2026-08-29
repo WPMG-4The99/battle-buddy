@@ -19,6 +19,8 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn("def _on_close", source)
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="ADD / FETCH"', source)
+        self.assertIn('text="ASK"', source)
+        self.assertIn("self.ask_entry", source)
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
 
@@ -60,12 +62,15 @@ class DraftBoxesLiveTest(unittest.TestCase):
             app.root.withdraw()
             self.assertEqual(app.entry.get(), "")
             self.assertEqual(app.url_entry.get(), "")
+            self.assertEqual(app.ask_entry.get(), "")
             app.entry.insert(0, "draft reminder")
             app.url_entry.insert(0, "https://example.com/wiki")
+            app.ask_entry.insert(0, "where is food")
             self.assertEqual(app.entry.get(), "draft reminder")
             app._clear_drafts()
             self.assertEqual(app.entry.get(), "")
             self.assertEqual(app.url_entry.get(), "")
+            self.assertEqual(app.ask_entry.get(), "")
         finally:
             app._on_close()
 

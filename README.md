@@ -37,7 +37,7 @@ macOS / Linux: same commands. venv optional. Typed fallback always works even if
 
 State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed. Restart and `list` still shows it.
 
-Databank (paste + fetch only): paste a public wiki URL in the window, hit **ADD / FETCH**. The app does a public http/https GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). No game detected → `general`. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. No chat this slice.
+Databank (paste + fetch only): paste a public wiki URL in the window, hit **ADD / FETCH**. The app does a public http/https GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). No game detected → `general`. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. **ASK** searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, ADD / FETCH a link first.
 
 ---
 
@@ -86,7 +86,7 @@ battlebuddy/memory/            local JSON store
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
 battlebuddy/game_detect/       local process scan. No Steam.
-battlebuddy/databank/          paste URL, public GET, save text. No LLM.
+battlebuddy/databank/          paste URL, public GET, save text. ASK searches local files only.
 battlebuddy/ui/                high-contrast window
 battlebuddy/__main__.py        typed CLI
 docs/                          PRD, agent loop, kickoff commands
