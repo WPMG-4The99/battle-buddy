@@ -13,7 +13,6 @@ from battlebuddy.databank.search import (
     Hit,
     ask_pages,
     content_terms,
-    page_files,
     query_terms,
 )
 from battlebuddy.databank.store import DatabankStore, Source
@@ -34,17 +33,16 @@ _LANG_SUFFIX = (
     "/uk",
     "/el",
 )
+# Strong production cues only. Bare "iron" / "planks" on a militia page is not a recipe.
 _CRAFT_CUES = (
-    "obtain",
     "obtained",
     "produced",
-    "produce",
-    "craft",
-    "workshop",
     "blacksmith",
+    "workshop",
     "backyard",
-    "planks",
-    "iron",
+    "craft",
+    "obtain",
+    "produce",
 )
 _HOWTO = {"how", "start", "produce", "production", "make", "craft", "obtain"}
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
@@ -198,7 +196,7 @@ def should_hunt(
     question: str,
     result: AskResult,
 ) -> bool:
-    """Hunt when local text is a miss, or a how-to with the noun but no craft cue."""
+    """Hunt when local text is a miss, or a how-to with no strong craft cue."""
     if not result.ok:
         return False
     if local_covers(store, game, question, result):
@@ -212,22 +210,16 @@ def local_covers(
     question: str,
     result: AskResult,
 ) -> bool:
-    """A how-to needs the noun plus a craft cue. Other questions keep a keyword hit."""
+    """How-to coverage is noun + strong craft cue on ASK hit snippets. Not full page text."""
     if not result.hits:
         return False
     if not _is_howto(question):
         return True
     nouns = search_variants(content_terms(query_terms(question)))
-    if any(_noun_and_craft(hit.title, hit.snippet, nouns) for hit in result.hits):
-        return True
-    for path in page_files(store.folder(game)):
-        try:
-            body = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if _noun_and_craft("", body, nouns):
-            return True
-    return False
+    best = result.hits[0]
+    if _militia_or_approval(best) and not _noun_and_craft(best.title, best.snippet, nouns):
+        return False
+    return any(_noun_and_craft(hit.title, hit.snippet, nouns) for hit in result.hits)
 
 
 def rank_ask_result(result: AskResult, question: str) -> AskResult:
@@ -266,21 +258,26 @@ def hunt_and_ask(store: DatabankStore, game: str | None, question: str) -> AskRe
     if not needed:
         return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH)
     existing = {item.url for item in store.list_sources(game)}
+    nouns = search_variants(needed)
+    collected: list[SearchHit] = []
     for home in homes:
-        urls = search_wiki_urls(home, needed)
+        hits = search_wiki_hits(home, needed)
+        collected.extend(hits)
+        ranked = rank_search_hits(hits, nouns)
         saved = 0
-        for url in urls:
+        for hit in ranked:
             if saved >= _MAX_PAGES:
                 break
-            if url in existing:
+            if hit.url in existing:
                 continue
-            fetched = store.add_url(game, url)
+            fetched = store.add_url(game, hit.url)
             if fetched.ok:
                 saved += 1
                 existing.add(fetched.url)
     found = rank_ask_result(ask_pages(store, game, question), question)
-    if found.hits:
-        return found
+    led = _lead_with_search_recipe(found, collected, nouns)
+    if led.hits:
+        return led
     return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, hits=())
 
 
@@ -481,9 +478,38 @@ def _ask_hit_score(hit: Hit, nouns: list[str]) -> int:
     return score
 
 
+def _lead_with_search_recipe(
+    result: AskResult,
+    search_hits: list[SearchHit],
+    nouns: list[str],
+) -> AskResult:
+    """MediaWiki snippet with obtained/blacksmith leads. No invent. No lowercase clip."""
+    recipes: list[Hit] = []
+    seen: set[str] = set()
+    for hit in rank_search_hits(search_hits, nouns):
+        if not _noun_and_craft(hit.title, hit.snippet, nouns):
+            continue
+        key = hit.title.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        recipes.append(Hit(title=hit.title, snippet=hit.snippet, score=100))
+    if not recipes:
+        return result
+    rest = [item for item in result.hits if item.title.strip().lower() not in seen]
+    kept = tuple((recipes + rest)[:_MAX_PAGES])
+    return AskResult(ok=True, empty=False, message=result.message, hits=kept)
+
+
 def _noun_and_craft(title: str, snippet: str, nouns: list[str]) -> bool:
     blob = f"{title} {snippet}".lower()
     return _has_any_word(blob, nouns) and _has_craft(blob)
+
+
+def _militia_or_approval(hit: Hit) -> bool:
+    title = hit.title.lower()
+    blob = f"{title} {hit.snippet}".lower()
+    return "militia" in blob or "approval" in title or "warfare" in title
 
 
 def _has_craft(blob: str) -> bool:

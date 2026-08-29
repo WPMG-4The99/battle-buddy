@@ -28,7 +28,13 @@ from battlebuddy.databank.wiki import (
 _SPEAR_Q = "How do I start a spear production?"
 _RECIPE = "Spears: obtained from Planks and Iron Slabs at the Blacksmith's Workshop backyard extension."
 _APPROVAL = "Spear Militia unlocks with an Approval perk. Higher approval gives more militia."
-_WARFARE = "Spear Militia is a unit in the warfare table."
+# Real wiki Warfare mentions spear AND iron/armor. That must not count as a recipe.
+_WARFARE = (
+    "Spear Militia is a unit in the warfare table. "
+    "The barracks lists spear, bow, and polearm militia. "
+    "Iron armor, iron helmets, and spears are issued to militia. "
+    "Higher approval gives more militia. Retinue wear better iron plate and mail."
+)
 
 
 class WikiHomeTest(unittest.TestCase):
@@ -145,11 +151,14 @@ class WikiHuntHttpTest(unittest.TestCase):
         self.assertIn("plank", blob)
         self.assertIn("iron", blob)
         self.assertIn("blacksmith", blob)
+        self.assertIn("obtained", blob)
         self.assertNotIn("ale", blob)
         self.assertNotIn("hildebolt", blob)
         self.assertFalse(blob.lstrip().startswith("approval"))
         self.assertIn("military", result.hits[0].title.lower())
         self.assertNotIn("approval", result.hits[0].title.lower())
+        self.assertIn("obtained", result.hits[0].snippet.lower())
+        self.assertIn("blacksmith", result.hits[0].snippet.lower())
         urls = [item.url for item in self.store.list_sources("Manor Lords")]
         self.assertTrue(any(item.endswith("/wiki/Military_items") for item in urls))
         searches = self._searches()
@@ -170,13 +179,61 @@ class WikiHuntHttpTest(unittest.TestCase):
         weak = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
         self.assertTrue(weak.hits)
         self.assertIn("spear", weak.output().lower())
+        self.assertIn("iron", weak.output().lower())
         self.assertNotIn("blacksmith", weak.output().lower())
         result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
         blob = result.output().lower()
         self.assertIn("spear", blob)
         self.assertIn("plank", blob)
+        self.assertIn("iron", blob)
         self.assertIn("blacksmith", blob)
+        self.assertIn("obtained", blob)
+        self.assertFalse(blob.lstrip().startswith("approval"))
         self.assertIn("military", result.hits[0].title.lower())
+        self.assertIn("obtained", result.hits[0].snippet.lower())
+        self.assertTrue(any("srsearch=spears" in path for path in self.hits))
+
+    def test_real_shaped_warfare_with_iron_still_hunts_recipe(self) -> None:
+        self._save_homepage()
+        self.store.save_page(
+            "Manor Lords",
+            f"{self.base}/wiki/Approval",
+            "Approval",
+            _APPROVAL,
+        )
+        self.store.save_page(
+            "Manor Lords",
+            f"{self.base}/wiki/Warfare",
+            "Warfare",
+            _WARFARE,
+        )
+        self.store.save_page(
+            "Manor Lords",
+            f"{self.base}/wiki/Warfare/nl",
+            "Warfare/nl",
+            _WARFARE,
+        )
+        local = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
+        self.assertTrue(local.hits)
+        self.assertIn("spear", local.output().lower())
+        self.assertIn("iron", local.output().lower())
+        self.assertNotIn("blacksmith", local.output().lower())
+        titles = {hit.title.lower() for hit in local.hits}
+        self.assertTrue(titles & {"approval", "warfare", "warfare/nl"})
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
+        blob = result.output().lower()
+        self.assertIn("spear", blob)
+        self.assertIn("plank", blob)
+        self.assertIn("iron", blob)
+        self.assertIn("blacksmith", blob)
+        self.assertIn("obtained", blob)
+        self.assertFalse(blob.lstrip().startswith("approval"))
+        self.assertIn("military", result.hits[0].title.lower())
+        self.assertIn("obtained", result.hits[0].snippet.lower())
+        self.assertIn("blacksmith", result.hits[0].snippet.lower())
+        self.assertTrue(any(item.endswith("/wiki/Military_items") for item in [
+            source.url for source in self.store.list_sources("Manor Lords")
+        ]))
         self.assertTrue(any("srsearch=spears" in path for path in self.hits))
 
     def test_local_military_items_recipe_does_not_network(self) -> None:
@@ -194,7 +251,9 @@ class WikiHuntHttpTest(unittest.TestCase):
         blob = result.output().lower()
         self.assertIn("spear", blob)
         self.assertIn("plank", blob)
+        self.assertIn("iron", blob)
         self.assertIn("blacksmith", blob)
+        self.assertFalse(blob.lstrip().startswith("approval"))
         self.assertEqual(self.hits, [])
 
     def test_local_spear_page_does_not_hunt(self) -> None:
