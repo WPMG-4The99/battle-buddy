@@ -9,6 +9,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.game_detect import detect_game, status_line
@@ -108,8 +109,8 @@ class BattleBuddyApp:
         self._game_name: str | None = None
         self._fetching = False
 
-        self.root.minsize(640, 800)
-        self.root.geometry("760x980")
+        self.root.minsize(640, 880)
+        self.root.geometry("760x1080")
 
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -355,6 +356,50 @@ class BattleBuddyApp:
         self.source_box.pack(fill="x")
         self._refresh_sources()
 
+        self.ask_entry = tk.Entry(
+            box,
+            font=("Arial", 18),
+            bg=_INPUT_BG,
+            fg=_FG,
+            insertbackground=_FLAME,
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=_FLAME,
+            highlightcolor=_FLAME,
+        )
+        self.ask_entry.pack(fill="x", ipady=14, pady=(10, 0))
+        self.ask_entry.bind("<Return>", lambda _event: self._ask())
+
+        self.ask_btn = tk.Button(
+            box,
+            text="ASK",
+            font=("Arial", 22, "bold"),
+            bg=_FLAME,
+            fg=_BG,
+            activebackground="#FF8A30",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=self._ask,
+        )
+        self.ask_btn.pack(fill="x", ipady=16, pady=(8, 4))
+
+        self.ask_out = tk.Text(
+            box,
+            font=("Arial", 14),
+            bg=_INPUT_BG,
+            fg=_FG,
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=_FLAME,
+            highlightcolor=_FLAME,
+            wrap="word",
+            height=6,
+            state="disabled",
+            cursor="arrow",
+        )
+        self.ask_out.pack(fill="x", pady=(0, 4))
+
     def _add_fetch(self) -> None:
         if self._fetching:
             return
@@ -437,6 +482,32 @@ class BattleBuddyApp:
                 wraplength=660,
                 justify="left",
             ).pack(fill="x", pady=1)
+
+    def _ask(self) -> None:
+        """Search saved page text in the current game folder. Local only."""
+        question = str(self.ask_entry.get()).strip()
+        result = ask_pages(self.databank, self._game_name, question)
+        self._set_ask_out(result.output())
+        if not result.ok:
+            return
+        try:
+            self.ask_entry.delete(0, "end")
+            self.ask_entry.focus_set()
+        except Exception:
+            pass
+
+    def _set_ask_out(self, text: str) -> None:
+        pane = getattr(self, "ask_out", None)
+        if pane is None:
+            return
+        try:
+            pane.config(state="normal")
+            pane.delete("1.0", "end")
+            if text:
+                pane.insert("1.0", text)
+            pane.config(state="disabled")
+        except Exception:
+            return
 
     def _size_list_window(self, event: object) -> None:
         width = int(getattr(event, "width", 0) or 0)
@@ -668,6 +739,7 @@ class BattleBuddyApp:
         self._game_name = name
         if game_slug(name) != old_slug:
             self._refresh_sources()
+            self._set_ask_out("")
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""
@@ -728,13 +800,18 @@ class BattleBuddyApp:
 
     def _clear_drafts(self) -> None:
         """Wipe typed drafts only. Reminders and databank stay on disk."""
-        for widget in (getattr(self, "entry", None), getattr(self, "url_entry", None)):
+        for widget in (
+            getattr(self, "entry", None),
+            getattr(self, "url_entry", None),
+            getattr(self, "ask_entry", None),
+        ):
             if widget is None:
                 continue
             try:
                 widget.delete(0, "end")
             except Exception:
                 continue
+        self._set_ask_out("")
 
     def _on_close(self) -> None:
         self._clear_drafts()
