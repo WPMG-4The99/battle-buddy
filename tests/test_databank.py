@@ -63,6 +63,24 @@ class StoreTest(unittest.TestCase):
         self.assertTrue((Path(tmp.name) / "databanks" / "general" / "sources.json").is_file())
         self.assertEqual(len(store.list_sources(None)), 1)
 
+    def test_sole_saved_game_from_one_folder(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        self.assertIsNone(store.sole_saved_game())
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot",
+            "1 Iron Slab and 1 Plank into 2 Spears",
+        )
+        self.assertEqual(store.sole_saved_game(), "Manor Lords")
+        folders = store.list_saved_folders()
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].name, "manor-lords")
+        store.save_page(None, "https://example.com/a", "A", "alpha")
+        self.assertIsNone(store.sole_saved_game())
+
     def test_same_home_as_reminders(self) -> None:
         self.assertEqual(DatabankStore().home, default_home())
 
