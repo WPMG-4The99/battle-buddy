@@ -128,8 +128,8 @@ class BattleBuddyApp:
         self._game_name: str | None = None
         self._fetching = False
 
-        self.root.minsize(640, 880)
-        self.root.geometry("760x1080")
+        self.root.minsize(640, 640)
+        self.root.geometry("760x900")
 
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -231,6 +231,7 @@ class BattleBuddyApp:
         )
         self.status.pack(fill="x", **pad)
 
+        self._build_databank()
         self._build_ask()
 
         tk.Label(
@@ -254,8 +255,6 @@ class BattleBuddyApp:
             command=self._clear_all,
         )
         self.clear_all_btn.pack(side="bottom", fill="x", ipady=14, padx=28, pady=(4, 8))
-
-        self._build_databank()
 
         list_frame = tk.Frame(self.root, bg=_BG)
         list_frame.pack(fill="both", expand=True, padx=28, pady=(4, 4))
@@ -358,7 +357,7 @@ class BattleBuddyApp:
         """Paste a URL. The app fetches. ASK searches local files. No chat."""
         tk = self.tk
         box = tk.Frame(self.root, bg=_BG)
-        box.pack(side="bottom", fill="x", padx=28, pady=(4, 4))
+        box.pack(fill="x", padx=28, pady=(4, 4))
 
         self.databank_header = tk.Label(
             box,
@@ -452,7 +451,7 @@ class BattleBuddyApp:
         )
         self.ask_btn.pack(fill="x", ipady=16, pady=(8, 4))
 
-        pane = tk.Frame(box, bg=_INPUT_BG, height=168)
+        pane = tk.Frame(box, bg=_INPUT_BG, height=96)
         pane.pack(fill="x", pady=(0, 4))
         pane.pack_propagate(False)
         self.ask_out = tk.Text(
@@ -465,7 +464,7 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
             wrap="word",
-            height=8,
+            height=4,
             state="disabled",
             cursor="arrow",
         )
