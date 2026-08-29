@@ -1,4 +1,4 @@
-"""Ask saved page text. Keyword retrieve only. No model. No invent."""
+"""Ask saved page text. Keyword retrieve only. No invent."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from battlebuddy.databank.clean import recipe_sentence, strip_markup
 from battlebuddy.databank.store import DatabankStore
 
 _WORD = re.compile(r"[a-z0-9]+")
@@ -69,11 +70,18 @@ class AskResult:
     hits: tuple[Hit, ...] = ()
 
     def output(self) -> str:
-        """One pane. Hits only, or the reason we have none."""
-        if self.hits:
-            blocks = [f"{hit.title}\n{hit.snippet}" for hit in self.hits]
-            return "\n\n".join(blocks)
-        return self.message
+        """One pane. Recipe sentence first when we have one. No markup dump."""
+        if not self.hits:
+            return self.message
+        blocks: list[str] = []
+        for hit in self.hits:
+            snippet = strip_markup(hit.snippet)
+            recipe = recipe_sentence(snippet)
+            if recipe and not blocks:
+                blocks.append(f"{recipe}\n{hit.title}")
+            else:
+                blocks.append(f"{hit.title}\n{snippet}")
+        return "\n\n".join(blocks)
 
 
 def page_files(folder: Path) -> list[Path]:
@@ -137,12 +145,12 @@ def search_folder(folder: Path, question: str) -> AskResult:
 
 def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
     lines = body.splitlines()
-    title = (lines[0].strip() if lines else "") or "untitled"
-    words = _WORD.findall(body.lower())
+    title = strip_markup(lines[0] if lines else "") or "untitled"
+    cleaned = strip_markup(body)
+    words = _WORD.findall(cleaned.lower())
     if not words:
         return None
-    best_score = 0
-    best_start = 0
+    recipe = recipe_sentence(cleaned, needed)
     window = _SNIP_WORDS
     if len(words) <= window:
         if not _has_content(words, needed):
@@ -150,7 +158,8 @@ def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
         score = _score(words, terms)
         if score <= 0:
             return None
-        return Hit(title=title, snippet=_clip(body, needed), score=score)
+        return Hit(title=title, snippet=recipe or _clip_cleaned(cleaned, needed), score=score)
+    best_score = 0
     for start in range(0, len(words) - window + 1, 4):
         chunk = words[start : start + window]
         if not _has_content(chunk, needed):
@@ -158,10 +167,9 @@ def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
         score = _score(chunk, terms)
         if score > best_score:
             best_score = score
-            best_start = start
     if best_score <= 0:
         return None
-    snippet = " ".join(words[best_start : best_start + window])
+    snippet = recipe or _clip_cleaned(cleaned, needed)
     return Hit(title=title, snippet=snippet, score=best_score)
 
 
@@ -184,13 +192,15 @@ def _term_in(bag: set[str], term: str) -> bool:
     return f"{term}s" in bag
 
 
-def _clip(body: str, needed: list[str]) -> str:
-    words = _WORD.findall(body.lower())
-    if not words:
+def _clip_cleaned(cleaned: str, needed: list[str]) -> str:
+    """Keep original case. Start near the first content word."""
+    tokens = cleaned.split()
+    if not tokens:
         return ""
     start = 0
-    for index, word in enumerate(words):
-        if any(_term_in({word}, term) for term in needed):
+    for index, token in enumerate(tokens):
+        bag = set(_WORD.findall(token.lower()))
+        if any(_term_in(bag, term) for term in needed):
             start = max(0, index - 8)
             break
-    return " ".join(words[start : start + _SNIP_WORDS])
+    return " ".join(tokens[start : start + _SNIP_WORDS])
