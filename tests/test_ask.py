@@ -165,6 +165,41 @@ class SearchFolderTest(unittest.TestCase):
         self.assertFalse(first.lower().startswith("spear militia"))
         self.assertFalse(first.islower())
 
+    def test_flattened_burgage_table_leads_with_spear_recipe(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        dump = (
+            "Tier 2 Backyards Backyard extension Cost Produces Perks/Affinities "
+            "Requires Maintenance Bakery 6 Planks 10 RW 1 Wheat Flour into 4 Wheat Bread "
+            "or 1 Rye Flour into 2 Rye Bread -0.2 Weiden Hinterlanders Blacksmith 8 Planks "
+            "25 RW 1 Iron Slab and 1 Plank into 2 Spears or 2 Iron Slabs into 1 Sidearm "
+            "or 1 Iron Slab and 1 Plank into 1 Polearms or 1 Iron Slab into 1 Tool or "
+            "1 Iron Slab into 1 Iron Part +0.2 Smiths of Passau -0.2 Weiden Hinterlanders "
+            "Brewery 6 Planks 10 RW 1 Malt into 2 Ale ..."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            dump,
+        )
+        result = ask_pages(store, "Manor Lords", "How do I start a spear production?")
+        out = result.output()
+        first = out.splitlines()[0]
+        low = first.lower()
+        self.assertTrue(result.hits)
+        self.assertIn("blacksmith", low)
+        self.assertIn("iron", low)
+        self.assertIn("plank", low)
+        self.assertIn("spear", low)
+        self.assertNotIn("bakery", low)
+        self.assertNotIn("ale", low)
+        self.assertNotIn("tailor", low)
+        self.assertNotIn("bread", low)
+        self.assertNotIn("hinterlanders", low)
+        self.assertLess(len(first.split()), 30)
+
 
 class AskUiSourceTest(unittest.TestCase):
     def test_ask_box_and_local_search_hooks(self) -> None:
