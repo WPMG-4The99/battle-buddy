@@ -140,7 +140,29 @@ class BattleBuddyApp:
 
     def _build(self) -> None:
         tk = self.tk
-        pad = {"padx": 28, "pady": 8}
+        pad = {"padx": 28, "pady": 4}
+
+        tk.Label(
+            self.root,
+            text=_voice_footer(),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+        ).pack(side="bottom", pady=8)
+
+        self.clear_all_btn = tk.Button(
+            self.root,
+            text="CLEAR ALL",
+            font=("Arial", 16, "bold"),
+            bg="#2A2A2A",
+            fg=_FG,
+            activebackground="#3A3A3A",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=self._clear_all,
+        )
+        self.clear_all_btn.pack(side="bottom", fill="x", ipady=8, padx=28, pady=(2, 2))
 
         tk.Label(
             self.root,
@@ -148,7 +170,7 @@ class BattleBuddyApp:
             font=("Arial", 28, "bold"),
             fg=_FLAME,
             bg=_BG,
-        ).pack(pady=(16, 0))
+        ).pack(pady=(4, 0))
 
         tk.Label(
             self.root,
@@ -156,7 +178,7 @@ class BattleBuddyApp:
             font=("Arial", 14),
             fg=_FG,
             bg=_BG,
-        ).pack(pady=(4, 4))
+        ).pack(pady=(2, 2))
 
         self.game_line = tk.Label(
             self.root,
@@ -165,7 +187,7 @@ class BattleBuddyApp:
             fg=_MUTED,
             bg=_BG,
         )
-        self.game_line.pack(pady=(0, 12))
+        self.game_line.pack(pady=(0, 6))
 
         self._field_caption(
             self.root,
@@ -185,14 +207,17 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
         )
-        self.entry.pack(fill="x", ipady=18, padx=28, pady=8)
+        self.entry.pack(fill="x", ipady=6, padx=28, pady=4)
         self.entry.bind("<Return>", lambda _event: self._lock())
         self.entry.focus_set()
 
+        actions = tk.Frame(self.root, bg=_BG)
+        actions.pack(fill="x", padx=28, pady=(6, 4))
+        speak_on = stt_available()
         self.lock_btn = tk.Button(
-            self.root,
+            actions,
             text="SUBMIT",
-            font=("Arial", 26, "bold"),
+            font=("Arial", 22, "bold"),
             bg=_FLAME,
             fg=_BG,
             activebackground="#FF8A30",
@@ -201,11 +226,16 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._lock,
         )
-        self.lock_btn.pack(fill="x", ipady=22, padx=28, pady=(12, 8))
-
-        if stt_available():
+        self.lock_btn.pack(
+            side="left",
+            expand=True,
+            fill="x",
+            ipady=8,
+            padx=(0, 8) if speak_on else 0,
+        )
+        if speak_on:
             self.speak_btn = tk.Button(
-                self.root,
+                actions,
                 text="SPEAK",
                 font=("Arial", 16, "bold"),
                 bg="#2A2A2A",
@@ -216,7 +246,7 @@ class BattleBuddyApp:
                 cursor="hand2",
                 command=self._speak,
             )
-            self.speak_btn.pack(fill="x", ipady=12, padx=28, pady=4)
+            self.speak_btn.pack(side="left", expand=True, fill="x", ipady=8)
         else:
             self.speak_btn = None
 
@@ -233,28 +263,6 @@ class BattleBuddyApp:
 
         self._build_databank()
         self._build_ask()
-
-        tk.Label(
-            self.root,
-            text=_voice_footer(),
-            font=("Arial", 12),
-            fg=_MUTED,
-            bg=_BG,
-        ).pack(side="bottom", pady=12)
-
-        self.clear_all_btn = tk.Button(
-            self.root,
-            text="CLEAR ALL",
-            font=("Arial", 16, "bold"),
-            bg="#2A2A2A",
-            fg=_FG,
-            activebackground="#3A3A3A",
-            activeforeground=_FG,
-            relief="flat",
-            cursor="hand2",
-            command=self._clear_all,
-        )
-        self.clear_all_btn.pack(side="bottom", fill="x", ipady=14, padx=28, pady=(4, 8))
 
         list_frame = tk.Frame(self.root, bg=_BG)
         list_frame.pack(fill="both", expand=True, padx=28, pady=(4, 4))
@@ -328,30 +336,29 @@ class BattleBuddyApp:
     ) -> None:
         """Large high-contrast name above a box. Hint stays outside the entry."""
         tk = self.tk
-        pack = {"fill": "x", "pady": (8, 0)}
+        row = tk.Frame(parent, bg=_BG)
+        pack = {"fill": "x", "pady": (4, 2)}
         if padx:
             pack["padx"] = padx
+        row.pack(**pack)
         tk.Label(
-            parent,
+            row,
             text=title,
             font=("Arial", 16, "bold"),
             fg=_FLAME,
             bg=_BG,
             anchor="w",
-        ).pack(**pack)
+        ).pack(side="left")
         if not hint:
             return
-        hint_pack = {"fill": "x", "pady": (0, 4)}
-        if padx:
-            hint_pack["padx"] = padx
         tk.Label(
-            parent,
+            row,
             text=hint,
             font=("Arial", 14),
             fg=_FG,
             bg=_BG,
             anchor="w",
-        ).pack(**hint_pack)
+        ).pack(side="left", padx=(12, 0))
 
     def _build_databank(self) -> None:
         """Paste a URL. The app fetches. ASK searches local files. No chat."""
@@ -367,12 +374,14 @@ class BattleBuddyApp:
             bg=_BG,
             anchor="w",
         )
-        self.databank_header.pack(fill="x", pady=(8, 4))
+        self.databank_header.pack(fill="x", pady=(2, 0))
 
         self._field_caption(box, "URL", "Paste a wiki URL here")
 
+        url_row = tk.Frame(box, bg=_BG)
+        url_row.pack(fill="x", pady=(0, 2))
         self.url_entry = tk.Entry(
-            box,
+            url_row,
             font=("Arial", 18),
             bg=_INPUT_BG,
             fg=_FG,
@@ -382,13 +391,12 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
         )
-        self.url_entry.pack(fill="x", ipady=14)
+        self.url_entry.pack(side="left", expand=True, fill="x", ipady=8)
         self.url_entry.bind("<Return>", lambda _event: self._add_fetch())
-
         self.fetch_btn = tk.Button(
-            box,
+            url_row,
             text="ADD / FETCH",
-            font=("Arial", 22, "bold"),
+            font=("Arial", 16, "bold"),
             bg=_FLAME,
             fg=_BG,
             activebackground="#FF8A30",
@@ -397,7 +405,7 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._add_fetch,
         )
-        self.fetch_btn.pack(fill="x", ipady=16, pady=(8, 4))
+        self.fetch_btn.pack(side="left", ipady=8, padx=(8, 0))
 
         self.databank_status = tk.Label(
             box,
@@ -423,8 +431,10 @@ class BattleBuddyApp:
 
         self._field_caption(box, "ASK YOUR QUESTION")
 
+        ask_row = tk.Frame(box, bg=_BG)
+        ask_row.pack(fill="x", pady=(0, 2))
         self.ask_entry = tk.Entry(
-            box,
+            ask_row,
             font=("Arial", 18),
             bg=_INPUT_BG,
             fg=_FG,
@@ -434,13 +444,12 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
         )
-        self.ask_entry.pack(fill="x", ipady=14)
+        self.ask_entry.pack(side="left", expand=True, fill="x", ipady=8)
         self.ask_entry.bind("<Return>", lambda _event: self._ask())
-
         self.ask_btn = tk.Button(
-            box,
+            ask_row,
             text="ASK",
-            font=("Arial", 22, "bold"),
+            font=("Arial", 16, "bold"),
             bg=_FLAME,
             fg=_BG,
             activebackground="#FF8A30",
@@ -449,9 +458,9 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._ask,
         )
-        self.ask_btn.pack(fill="x", ipady=16, pady=(8, 4))
+        self.ask_btn.pack(side="left", ipady=8, padx=(8, 0))
 
-        pane = tk.Frame(box, bg=_INPUT_BG, height=96)
+        pane = tk.Frame(box, bg=_INPUT_BG, height=56)
         pane.pack(fill="x", pady=(0, 4))
         pane.pack_propagate(False)
         self.ask_out = tk.Text(

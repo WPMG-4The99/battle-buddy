@@ -86,7 +86,7 @@ class DraftBoxesLiveTest(unittest.TestCase):
             self.assertIn("ADD / FETCH", labels)
             self.assertIn("ASK", labels)
             app.root.deiconify()
-            app.root.update_idletasks()
+            app.root.update()
             titles = (
                 "REMINDER",
                 "URL",
