@@ -28,11 +28,14 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn("self.ask_entry", source)
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
-        self.assertIn('geometry("760x900")', source)
+        self.assertIn('geometry("1200x800")', source)
+        self.assertIn("minsize(1000, 640)", source)
+        self.assertNotIn('geometry("760x900")', source)
         self.assertNotIn('geometry("760x1080")', source)
         self.assertNotIn("760x1080", source)
         build = source.split("def _build(self)")[1].split("def _field_caption")[0]
-        self.assertLess(build.find("self._build_databank()"), build.find("self._build_ask()"))
+        self.assertLess(build.find("self._build_databank("), build.find("self._build_ask("))
+        self.assertIn("self._build_left(", build)
         databank = source.split("def _build_databank")[1].split("def _build_ask")[0]
         self.assertNotIn('side="bottom"', databank)
         self.assertIn('side="bottom"', build)
@@ -95,23 +98,28 @@ class DraftBoxesLiveTest(unittest.TestCase):
                 "CLEAR ALL",
             )
             order = _label_root_y(app.root, titles)
+            xs = _label_root_x(app.root, titles)
             self.assertEqual(set(order), set(titles))
-            ranked = [name for name, _y in sorted(order.items(), key=lambda item: item[1])]
-            self.assertEqual(
-                ranked,
-                [
-                    "REMINDER",
-                    "URL",
-                    "ASK YOUR QUESTION",
-                    "ON DISK",
-                    "CLEAR ALL",
-                ],
-            )
-            self.assertLess(order["URL"], order["CLEAR ALL"])
-            self.assertLess(order["ASK YOUR QUESTION"], order["ON DISK"])
+            self.assertEqual(set(xs), set(titles))
+            left_y = [name for name, _y in sorted(
+                ((name, order[name]) for name in ("REMINDER", "ON DISK", "CLEAR ALL")),
+                key=lambda item: item[1],
+            )]
+            self.assertEqual(left_y, ["REMINDER", "ON DISK", "CLEAR ALL"])
+            self.assertLess(order["URL"], order["ASK YOUR QUESTION"])
+            self.assertLess(xs["REMINDER"], xs["URL"])
+            self.assertLess(xs["ON DISK"], xs["ASK YOUR QUESTION"])
+            self.assertLess(xs["CLEAR ALL"], xs["URL"])
+            self.assertGreater(int(app.ask_out.winfo_rooty()), order["ASK YOUR QUESTION"])
+            win_top = int(app.root.winfo_rooty())
+            win_bottom = win_top + int(app.root.winfo_height())
+            for name, y in order.items():
+                self.assertGreaterEqual(y, win_top, name)
+                self.assertLess(y, win_bottom, name)
             geo = str(app.root.geometry()).split("+", 1)[0]
-            height = int(geo.split("x")[1])
-            self.assertLessEqual(height, 900)
+            width, height = (int(part) for part in geo.split("x"))
+            self.assertGreaterEqual(width, 1000)
+            self.assertLessEqual(height, 800)
             app.entry.insert(0, "draft reminder")
             app.url_entry.insert(0, "https://example.com/wiki")
             app.ask_entry.insert(0, "where is food")
@@ -130,6 +138,16 @@ class DraftBoxesLiveTest(unittest.TestCase):
 
 
 def _label_root_y(widget: object, titles: tuple[str, ...]) -> dict[str, int]:
+    return _label_root_attr(widget, titles, "winfo_rooty")
+
+
+def _label_root_x(widget: object, titles: tuple[str, ...]) -> dict[str, int]:
+    return _label_root_attr(widget, titles, "winfo_rootx")
+
+
+def _label_root_attr(
+    widget: object, titles: tuple[str, ...], attr: str
+) -> dict[str, int]:
     found: dict[str, int] = {}
 
     def walk(node: object) -> None:
@@ -139,7 +157,7 @@ def _label_root_y(widget: object, titles: tuple[str, ...]) -> dict[str, int]:
             text = ""
         if text in titles and text not in found:
             try:
-                found[text] = int(node.winfo_rooty())
+                found[text] = int(getattr(node, attr)())
             except Exception:
                 pass
         try:
