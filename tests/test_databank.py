@@ -105,7 +105,11 @@ class FetchHttpTest(unittest.TestCase):
         self.thread.start()
         host, port = self.server.server_address[:2]
         self.base = f"http://{host}:{port}"
-        self.addCleanup(self.server.shutdown)
+        self.addCleanup(self._stop_server)
+
+    def _stop_server(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
 
     def test_get_strips_and_saves(self) -> None:
         tmp = TemporaryDirectory()
