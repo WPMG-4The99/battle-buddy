@@ -20,6 +20,11 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="ADD / FETCH"', source)
         self.assertIn('text="ASK"', source)
+        self.assertIn('"REMINDER"', source)
+        self.assertIn("Lock a time reminder here", source)
+        self.assertIn('"URL"', source)
+        self.assertIn("Paste a wiki URL here", source)
+        self.assertIn('"ASK YOUR QUESTION"', source)
         self.assertIn("self.ask_entry", source)
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
@@ -63,6 +68,15 @@ class DraftBoxesLiveTest(unittest.TestCase):
             self.assertEqual(app.entry.get(), "")
             self.assertEqual(app.url_entry.get(), "")
             self.assertEqual(app.ask_entry.get(), "")
+            labels = _visible_label_texts(app.root)
+            self.assertIn("REMINDER", labels)
+            self.assertIn("Lock a time reminder here", labels)
+            self.assertIn("URL", labels)
+            self.assertIn("Paste a wiki URL here", labels)
+            self.assertIn("ASK YOUR QUESTION", labels)
+            self.assertIn("SUBMIT", labels)
+            self.assertIn("ADD / FETCH", labels)
+            self.assertIn("ASK", labels)
             app.entry.insert(0, "draft reminder")
             app.url_entry.insert(0, "https://example.com/wiki")
             app.ask_entry.insert(0, "where is food")
@@ -78,6 +92,21 @@ class DraftBoxesLiveTest(unittest.TestCase):
         self.assertEqual(memory.read_text(encoding="utf-8").strip(), '{"reminders": []}')
         self.assertTrue(sources.is_file())
         self.assertEqual(sources.read_text(encoding="utf-8").strip(), "[]")
+
+
+def _visible_label_texts(widget: object) -> list[str]:
+    texts: list[str] = []
+    try:
+        texts.append(str(widget.cget("text")))
+    except Exception:
+        pass
+    try:
+        children = widget.winfo_children()
+    except Exception:
+        return texts
+    for child in children:
+        texts.extend(_visible_label_texts(child))
+    return texts
 
 
 if __name__ == "__main__":
