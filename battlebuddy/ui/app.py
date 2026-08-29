@@ -297,7 +297,7 @@ class BattleBuddyApp:
             self.status.config(text="Holding the line. Pending reminder on disk.")
 
     def _build_databank(self) -> None:
-        """Paste a URL. The app fetches. Quiet list. No chat."""
+        """Paste a URL. The app fetches. ASK searches local files. No chat."""
         tk = self.tk
         box = tk.Frame(self.root, bg=_BG)
         box.pack(side="bottom", fill="x", padx=28, pady=(4, 4))
