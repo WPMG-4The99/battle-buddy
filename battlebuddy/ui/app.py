@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
-from battlebuddy.databank.wiki import ask_or_hunt, wiki_home_for
+from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -570,8 +570,8 @@ class BattleBuddyApp:
             return
         question = str(self.ask_entry.get()).strip()
         result = ask_pages(self.databank, self._game_name, question)
-        if result.hits or not result.ok or wiki_home_for(self._game_name, self.databank) is None:
-            self._show_ask(ask_visible_message(result))
+        if not should_hunt(self.databank, self._game_name, question, result):
+            self._show_ask(ask_visible_message(rank_ask_result(result, question)))
             if result.ok:
                 self._clear_ask_box()
             return
