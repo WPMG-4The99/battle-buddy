@@ -6,9 +6,17 @@ Speak it once. It holds the line.
 
 External memory for veterans in long game sessions. For the forgotten 99%, we rise.
 
-## Run it — Windows (PowerShell or cmd)
+## Windows — double-click (no Python, no account)
 
-Python 3.10+. No signup. Clone, run, done.
+Double-click `BattleBuddy.exe` or run `BattleBuddy-Setup.exe`. The high-contrast UI opens. No login. pip is not required to run the exe.
+
+Setup is per-user, no admin. Shortcuts: **Battle Buddy** on the Desktop and Start Menu. State stays in `%USERPROFILE%\.battlebuddy`. Uninstall is allowed.
+
+On a Windows box you can build those files with `.\scripts\build-windows.ps1` (PyInstaller is build-only). Do not build the exe on Linux.
+
+## Run it from source — Windows (PowerShell or cmd)
+
+Python 3.10+. No signup. Clone, run, done. Same loop as the exe.
 
 ```text
 git clone https://github.com/wyldephyre/battle-buddy.git
@@ -18,7 +26,7 @@ python -m battlebuddy remind me in 1 minute to check food stores
 
 Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
 
-High-contrast UI (same folder, no account):
+High-contrast UI from a source clone (same folder, no account):
 
 ```text
 python -m battlebuddy ui
@@ -88,7 +96,11 @@ battlebuddy/voice/             local TTS / STT, typed fallback
 battlebuddy/game_detect/       local process scan. No Steam.
 battlebuddy/databank/          paste URL, public GET, save text. ASK searches local files only.
 battlebuddy/ui/                high-contrast window
+battlebuddy/win_entry.py       windowed exe entry (same as `python -m battlebuddy ui`)
 battlebuddy/__main__.py        typed CLI
+BattleBuddy.spec               PyInstaller onedir spec
+installer/BattleBuddy.iss      per-user Inno Setup (no admin)
+scripts/build-windows.ps1      Windows exe + setup build
 docs/                          PRD, agent loop, kickoff commands
 .cursor/rules/                 Cursor project rules
 AGENTS.md                      Standing orders for every agent

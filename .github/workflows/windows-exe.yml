@@ -1,0 +1,32 @@
+name: Windows exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build BattleBuddy.exe and setup
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BattleBuddy-windows
+          path: |
+            dist/BattleBuddy/
+            dist/BattleBuddy-Setup.exe
+          if-no-files-found: error
