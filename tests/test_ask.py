@@ -9,7 +9,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from battlebuddy.databank.search import ask_pages, search_folder
+from battlebuddy.databank.clean import strip_markup
+from battlebuddy.databank.search import ask_pages, content_terms, query_terms, search_folder
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt
 from battlebuddy.ui import app as ui_app
@@ -238,6 +239,115 @@ class SearchFolderTest(unittest.TestCase):
         hunt_first = hunted.output().splitlines()[0]
         self.assertIn("blacksmith", hunt_first.lower())
         self.assertIn("spear", hunt_first.lower())
+
+    def test_set_up_spear_needed_terms_are_just_spear(self) -> None:
+        terms = query_terms("how to set up spear production")
+        self.assertEqual(terms, ["set", "up", "spear", "production"])
+        self.assertEqual(content_terms(terms), ["spear"])
+
+    def test_strip_markup_drops_wiki_bold_italic_and_list_stars(self) -> None:
+        dirty = "* ''' Spears ''': obtained from Planks and Iron Slabs"
+        cleaned = strip_markup(dirty)
+        self.assertNotIn("'''", cleaned)
+        self.assertNotIn("''", cleaned)
+        self.assertFalse(cleaned.lstrip().startswith("*"))
+        self.assertIn("Spears", cleaned)
+        self.assertIn("obtained", cleaned.lower())
+
+    def test_set_up_spear_production_leads_with_blacksmith_not_homepage(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Amenities",
+            "Amenities",
+            "Set up a Market Stall on the plaza. Amenities hold up to three families.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Clay_furnace",
+            "Clay furnace",
+            "Clay furnace. Up to three families can work the kiln.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Weavers_workshop",
+            "Weaver's workshop",
+            "Weaver's workshop. Set up yarn, then cloth. Up to three families. "
+            "A spear hangs on the wall as decor.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Malthouse",
+            "Malthouse",
+            "Malthouse. Set up malt production. Up to three families.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Bakery",
+            "Bakery",
+            "Bakery. Set up a Market Stall for bread. Up to three families.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/military",
+            "Military items",
+            "* ''' Spears ''': obtained from Planks and Iron Slabs at the "
+            "Blacksmith's Workshop backyard extension.",
+        )
+        dump = (
+            "Tier 2 Backyards Backyard extension Cost Produces Perks/Affinities "
+            "Requires Maintenance Bakery 6 Planks 10 RW 1 Wheat Flour into 4 Wheat Bread "
+            "or 1 Rye Flour into 2 Rye Bread -0.2 Weiden Hinterlanders Blacksmith 8 Planks "
+            "25 RW 1 Iron Slab and 1 Plank into 2 Spears or 2 Iron Slabs into 1 Sidearm "
+            "or 1 Iron Slab and 1 Plank into 1 Polearms or 1 Iron Slab into 1 Tool or "
+            "1 Iron Slab into 1 Iron Part +0.2 Smiths of Passau -0.2 Weiden Hinterlanders "
+            "Brewery 6 Planks 10 RW 1 Malt into 2 Ale ..."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            dump,
+        )
+        result = ask_pages(store, "Manor Lords", "how to set up spear production")
+        out = result.output()
+        first = out.splitlines()[0]
+        low = out.lower()
+        first_low = first.lower()
+        self.assertTrue(result.hits)
+        self.assertIn("blacksmith", first_low)
+        self.assertIn("iron", first_low)
+        self.assertIn("plank", first_low)
+        self.assertIn("spear", first_low)
+        self.assertNotIn("'''", out)
+        self.assertFalse(first.lstrip().startswith("*"))
+        self.assertNotIn("amenities", low)
+        self.assertNotIn("market stall", low)
+        self.assertNotIn("weaver", low)
+        self.assertNotIn("clay", low)
+        self.assertNotIn("malthouse", low)
+        self.assertNotIn("bakery", low)
+
+    def test_set_up_spear_homepage_without_spear_does_not_invent(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            "Manor Lords",
+            "https://manorlords.fandom.com/wiki/Amenities",
+            "Amenities",
+            "Set up a Market Stall. Up to three families. Weaver's workshop. "
+            "Clay furnace. Malthouse. Bakery.",
+        )
+        result = ask_pages(store, "Manor Lords", "how to set up spear production")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.hits, ())
+        self.assertIn("Nothing invented", result.output())
+        self.assertNotIn("market stall", result.output().lower())
+        self.assertNotIn("amenities", result.output().lower())
+        self.assertNotIn("weaver", result.output().lower())
 
     def test_spear_homepage_without_recipe_still_does_not_invent(self) -> None:
         tmp = TemporaryDirectory()
