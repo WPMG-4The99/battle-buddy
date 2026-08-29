@@ -15,11 +15,13 @@ from urllib.parse import urlparse
 from battlebuddy.databank.reason import (
     BUNDLED_PORT,
     LOCAL_PORTS,
+    bundled_popen_kwargs,
     bundled_server_argv,
     local_answer,
     present_ask,
     start_bundled_server,
     stop_bundled_server,
+    windows_hidden_popen_kwargs,
 )
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.store import DatabankStore
@@ -235,6 +237,61 @@ class BundledServerTest(unittest.TestCase):
         self.assertNotIn("0.0.0.0", argv)
         stop_bundled_server()
         fake.terminate.assert_called()
+
+    def test_bundled_start_kwargs_hide_windows_console(self) -> None:
+        hide = windows_hidden_popen_kwargs()
+        flags = int(hide["creationflags"])
+        self.assertEqual(flags & 0x08000000, 0x08000000)
+        info = hide["startupinfo"]
+        self.assertTrue(int(getattr(info, "dwFlags", 0)) & 1)
+        self.assertEqual(int(getattr(info, "wShowWindow", 99)), 0)
+        kwargs = bundled_popen_kwargs("/tmp/llm")
+        self.assertEqual(kwargs["cwd"], "/tmp/llm")
+        self.assertTrue(kwargs.get("start_new_session"))
+        from battlebuddy.databank import reason
+
+        text = Path(reason.__file__).read_text(encoding="utf-8")
+        self.assertIn("CREATE_NO_WINDOW", text)
+        self.assertIn("0x08000000", text)
+        self.assertIn("STARTF_USESHOWWINDOW", text)
+        self.assertIn("SW_HIDE", text)
+        self.assertIn("startupinfo", text)
+        self.assertIn("STARTUPINFO", text)
+        start_src = text.split("def start_bundled_server")[1].split("def ")[0]
+        self.assertIn("bundled_popen_kwargs", start_src)
+        self.assertIn("127.0.0.1", text)
+        self.assertNotIn("0.0.0.0", bundled_server_argv(Path("x"), Path("y")))
+
+    def test_start_passes_hidden_windows_kwargs(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = Path(tmp.name)
+        (folder / "llama-server").write_text("x", encoding="utf-8")
+        (folder / "SmolLM2-360M-Instruct-Q4_K_M.gguf").write_bytes(b"gguf")
+        os.environ["BATTLEBUDDY_LLM_DIR"] = str(folder)
+        fake = MagicMock()
+        fake.poll.return_value = None
+        hide = windows_hidden_popen_kwargs()
+        with patch("battlebuddy.databank.reason.any_reasoner_listening", return_value=False):
+            with patch("battlebuddy.databank.reason.sys.platform", "win32"):
+                with patch(
+                    "battlebuddy.databank.reason.windows_hidden_popen_kwargs",
+                    return_value=hide,
+                ):
+                    with patch(
+                        "battlebuddy.databank.reason.subprocess.Popen",
+                        return_value=fake,
+                    ) as popen:
+                        self.assertTrue(start_bundled_server())
+        kwargs = popen.call_args.kwargs
+        self.assertEqual(int(kwargs["creationflags"]) & 0x08000000, 0x08000000)
+        self.assertIs(kwargs["startupinfo"], hide["startupinfo"])
+        self.assertEqual(int(kwargs["startupinfo"].wShowWindow), 0)
+        self.assertTrue(int(kwargs["startupinfo"].dwFlags) & 1)
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
+        self.assertNotIn("0.0.0.0", argv)
+        stop_bundled_server()
 
 
 def _make_handler(

@@ -26,6 +26,8 @@ PROBE_TIMEOUT = 1.5
 PAGE_CAP = 4000
 _LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 _CREATE_NO_WINDOW = 0x08000000
+_STARTF_USESHOWWINDOW = 1
+_SW_HIDE = 0
 _PREFERRED_GGUF = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
 _lock = threading.Lock()
 _bundled_proc: subprocess.Popen[bytes] | None = None
@@ -170,6 +172,48 @@ def any_reasoner_listening(ports: tuple[int, ...] | None = None) -> bool:
     return False
 
 
+def bundled_popen_kwargs(cwd: str | Path) -> dict[str, object]:
+    """Popen kwargs for llama-server. Hidden console on Windows. Loopback only."""
+    kwargs: dict[str, object] = {
+        "cwd": str(cwd),
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        kwargs.update(windows_hidden_popen_kwargs())
+    else:
+        kwargs["start_new_session"] = True
+    return kwargs
+
+
+def windows_hidden_popen_kwargs() -> dict[str, object]:
+    """CREATE_NO_WINDOW plus STARTUPINFO SW_HIDE so llama-server.exe cannot flash."""
+    flags = _CREATE_NO_WINDOW
+    extra = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    kwargs: dict[str, object] = {
+        "creationflags": int(flags) | int(extra or 0),
+    }
+    factory = getattr(subprocess, "STARTUPINFO", None)
+    if factory is not None:
+        info = factory()
+        use_show = int(getattr(subprocess, "STARTF_USESHOWWINDOW", _STARTF_USESHOWWINDOW))
+        hide = int(getattr(subprocess, "SW_HIDE", _SW_HIDE))
+        info.dwFlags |= use_show
+        info.wShowWindow = hide
+        kwargs["startupinfo"] = info
+    else:
+        kwargs["startupinfo"] = _HiddenStartupInfo()
+    return kwargs
+
+
+class _HiddenStartupInfo:
+    """Stand-in when STARTUPINFO is missing (Linux tests). Same hide flags."""
+
+    def __init__(self) -> None:
+        self.dwFlags = int(getattr(subprocess, "STARTF_USESHOWWINDOW", _STARTF_USESHOWWINDOW))
+        self.wShowWindow = int(getattr(subprocess, "SW_HIDE", _SW_HIDE))
+
+
 def start_bundled_server(*, wait: bool = False) -> bool:
     """Start llama-server on 127.0.0.1:8765 only if nothing else is answering."""
     global _bundled_proc
@@ -186,17 +230,7 @@ def start_bundled_server(*, wait: bool = False) -> bool:
             argv = bundled_server_argv(exe, model)
             if LOOPBACK_HOST not in argv or "0.0.0.0" in argv:
                 return False
-            kwargs: dict[str, object] = {
-                "cwd": str(exe.parent),
-                "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
-            }
-            if sys.platform == "win32":
-                flags = _CREATE_NO_WINDOW
-                extra = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                kwargs["creationflags"] = int(flags) | int(extra or 0)
-            else:
-                kwargs["start_new_session"] = True
+            kwargs = bundled_popen_kwargs(exe.parent)
             try:
                 _bundled_proc = subprocess.Popen(argv, **kwargs)
             except OSError:
