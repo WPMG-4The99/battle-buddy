@@ -228,7 +228,13 @@ def rank_ask_result(result: AskResult, question: str) -> AskResult:
             weak.append(hit)
     kept = strong if strong else weak
     kept.sort(key=lambda item: _ask_hit_score(item, nouns), reverse=True)
-    return AskResult(ok=result.ok, empty=result.empty, message=result.message, hits=tuple(kept))
+    return AskResult(
+        ok=result.ok,
+        empty=result.empty,
+        message=result.message,
+        hits=tuple(kept),
+        question=question or result.question,
+    )
 
 
 def ask_or_hunt(store: DatabankStore, game: str | None, question: str) -> AskResult:
@@ -248,7 +254,7 @@ def hunt_and_ask(store: DatabankStore, game: str | None, question: str) -> AskRe
         return rank_ask_result(ask_pages(store, game, question), question)
     needed = content_terms(query_terms(question))
     if not needed:
-        return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH)
+        return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, question=question)
     existing = {item.url for item in store.list_sources(game)}
     nouns = search_variants(needed)
     collected: list[SearchHit] = []
@@ -270,7 +276,7 @@ def hunt_and_ask(store: DatabankStore, game: str | None, question: str) -> AskRe
     led = _lead_with_search_recipe(found, collected, nouns)
     if led.hits:
         return led
-    return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, hits=())
+    return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, hits=(), question=question)
 
 
 def search_wiki_urls(home: WikiHome, terms: list[str]) -> list[str]:
@@ -490,7 +496,13 @@ def _lead_with_search_recipe(
         return result
     rest = [item for item in result.hits if item.title.strip().lower() not in seen]
     kept = tuple((recipes + rest)[:_MAX_PAGES])
-    return AskResult(ok=True, empty=False, message=result.message, hits=kept)
+    return AskResult(
+        ok=True,
+        empty=False,
+        message=result.message,
+        hits=kept,
+        question=result.question,
+    )
 
 
 def _noun_and_craft(title: str, snippet: str, nouns: list[str]) -> bool:
@@ -505,10 +517,13 @@ def _militia_or_approval(hit: Hit) -> bool:
 
 
 def _has_craft(blob: str) -> bool:
-    """obtained / produced / blacksmith's workshop / backyard. Lone blacksmith does not count."""
+    """obtained / produced / backyard / into N. Lone blacksmith does not count."""
     words = _cue_words(blob)
     if set(words) & set(_STRONG_CRAFT_WORDS):
         return True
+    for index, word in enumerate(words[:-1]):
+        if word == "into" and words[index + 1].isdigit():
+            return True
     pairs = set(_STRONG_CRAFT_PAIRS)
     return any((words[i], words[i + 1]) in pairs for i in range(len(words) - 1))
 

@@ -68,15 +68,17 @@ class AskResult:
     empty: bool
     message: str
     hits: tuple[Hit, ...] = ()
+    question: str = ""
 
     def output(self) -> str:
         """One pane. Recipe sentence first when we have one. No markup dump."""
         if not self.hits:
             return self.message
+        nouns = content_terms(query_terms(self.question))
         blocks: list[str] = []
         for hit in self.hits:
             snippet = strip_markup(hit.snippet)
-            recipe = recipe_sentence(snippet)
+            recipe = recipe_sentence(snippet, nouns)
             if recipe and not blocks:
                 blocks.append(f"{recipe}\n{hit.title}")
             else:
@@ -119,14 +121,14 @@ def search_folder(folder: Path, question: str) -> AskResult:
     """Keyword retrieve over on-disk page text. Never fetches. Never invents."""
     text = (question or "").strip()
     if not text:
-        return AskResult(ok=False, empty=False, message=_NEED_QUESTION)
+        return AskResult(ok=False, empty=False, message=_NEED_QUESTION, question=text)
     files = page_files(folder)
     if not files:
-        return AskResult(ok=True, empty=True, message=_EMPTY)
+        return AskResult(ok=True, empty=True, message=_EMPTY, question=text)
     terms = query_terms(text)
     needed = content_terms(terms)
     if not needed:
-        return AskResult(ok=True, empty=False, message=_NO_MATCH)
+        return AskResult(ok=True, empty=False, message=_NO_MATCH, question=text)
     hits: list[Hit] = []
     for path in files:
         try:
@@ -139,8 +141,8 @@ def search_folder(folder: Path, question: str) -> AskResult:
     hits.sort(key=lambda item: item.score, reverse=True)
     kept = tuple(hits[:_MAX_HITS])
     if not kept:
-        return AskResult(ok=True, empty=False, message=_NO_MATCH, hits=())
-    return AskResult(ok=True, empty=False, message="Match on disk.", hits=kept)
+        return AskResult(ok=True, empty=False, message=_NO_MATCH, hits=(), question=text)
+    return AskResult(ok=True, empty=False, message="Match on disk.", hits=kept, question=text)
 
 
 def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
