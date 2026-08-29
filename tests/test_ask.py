@@ -158,9 +158,14 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("self._tick_clocks()", source)
         self.assertNotIn("openai", source.lower())
         self.assertNotIn("anthropic", source.lower())
+        show = source.split("def _show_ask")[1].split("def ")[0]
+        self.assertIn("_set_ask_out", show)
+        self.assertNotIn("databank_status", show)
+        self.assertNotIn("self.status", show)
         apply_src = source.split("def _apply_game")[1].split("def ")[0]
         self.assertNotIn('_set_ask_out("")', apply_src)
         self.assertIn("switched_databank_line", apply_src)
+        self.assertIn("databank_status", apply_src)
 
 
 class AskVisibleMessageTest(unittest.TestCase):
@@ -264,9 +269,9 @@ class AskUiTest(unittest.TestCase):
             )
             app._ask()
             self.assertIn("ADD / FETCH", expected)
-            self.assertEqual(str(app.databank_status.cget("text")), expected)
-            self.assertEqual(str(app.status.cget("text")), expected)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
+            self.assertNotEqual(str(app.status.cget("text")), expected)
+            self.assertNotEqual(str(app.databank_status.cget("text")), expected)
         finally:
             app._on_close()
 
@@ -285,9 +290,9 @@ class AskUiTest(unittest.TestCase):
             )
             app._ask()
             self.assertIn("granary", expected.lower())
-            self.assertEqual(str(app.databank_status.cget("text")), expected)
-            self.assertEqual(str(app.status.cget("text")), expected)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
+            self.assertNotEqual(str(app.status.cget("text")), expected)
+            self.assertNotEqual(str(app.databank_status.cget("text")), expected)
         finally:
             app._on_close()
 
@@ -338,21 +343,27 @@ class AskUiTest(unittest.TestCase):
             app.ask_entry.insert(0, "where is the granary")
             app._ask()
             hit = app.ask_out.get("1.0", "end-1c")
+            reminder = str(app.status.cget("text"))
             self.assertIn("granary", hit.lower())
+            self.assertNotEqual(reminder, hit)
             app._apply_game("Manor Lords")
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            self.assertEqual(str(app.status.cget("text")), reminder)
             self.assertEqual(app._game_name, "Manor Lords")
             app._apply_game(None)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            self.assertEqual(str(app.status.cget("text")), reminder)
             self.assertEqual(app._game_name, "Manor Lords")
             app._apply_game("Manor Lords")
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            self.assertEqual(str(app.status.cget("text")), reminder)
             app._apply_game("RimWorld")
             notice = ui_app.switched_databank_line("RimWorld")
             self.assertIn("switched databank", notice.lower())
-            self.assertEqual(str(app.databank_status.cget("text")), notice)
-            self.assertEqual(str(app.status.cget("text")), notice)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), notice)
+            self.assertEqual(str(app.databank_status.cget("text")), notice)
+            self.assertEqual(str(app.status.cget("text")), reminder)
+            self.assertNotEqual(reminder, notice)
         finally:
             app._on_close()
 

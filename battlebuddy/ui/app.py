@@ -72,7 +72,7 @@ def is_named_game(name: str | None) -> bool:
 
 
 def ask_visible_message(result: object) -> str:
-    """Text ASK must put on the visible labels. Local search only."""
+    """Text ASK must put on the right output pane. Local search only."""
     output = getattr(result, "output", None)
     if callable(output):
         text = str(output())
@@ -130,8 +130,8 @@ class BattleBuddyApp:
         self._fetching = False
         self._asking = False
 
-        self.root.minsize(640, 640)
-        self.root.geometry("760x900")
+        self.root.minsize(1000, 640)
+        self.root.geometry("1200x800")
 
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -142,7 +142,6 @@ class BattleBuddyApp:
 
     def _build(self) -> None:
         tk = self.tk
-        pad = {"padx": 28, "pady": 4}
 
         tk.Label(
             self.root,
@@ -152,8 +151,61 @@ class BattleBuddyApp:
             bg=_BG,
         ).pack(side="bottom", pady=8)
 
+        columns = tk.Frame(self.root, bg=_BG)
+        columns.pack(fill="both", expand=True)
+        columns.columnconfigure(0, weight=1, uniform="col")
+        columns.columnconfigure(1, weight=1, uniform="col")
+        columns.rowconfigure(0, weight=1)
+
+        left = tk.Frame(columns, bg=_BG)
+        left.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=4)
+        right = tk.Frame(columns, bg=_BG)
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 20), pady=4)
+
+        self._build_left(left)
+        self._build_databank(right)
+        self._build_ask(right)
+
+        self._overlay = tk.Frame(self.root, bg=_FIRE_BG)
+        tk.Label(
+            self._overlay,
+            text="FIRE",
+            font=("Arial", 80, "bold"),
+            fg=_FIRE_FG,
+            bg=_FIRE_BG,
+        ).pack(pady=(80, 12))
+        self.fire_text = tk.Label(
+            self._overlay,
+            text="",
+            font=("Arial", 28, "bold"),
+            fg=_FG,
+            bg=_FIRE_BG,
+            wraplength=640,
+        )
+        self.fire_text.pack(pady=12, padx=24)
+        tk.Button(
+            self._overlay,
+            text="SEEN",
+            font=("Arial", 24, "bold"),
+            bg=_FIRE_FG,
+            fg=_FIRE_BG,
+            activebackground="#FFF38A",
+            relief="flat",
+            cursor="hand2",
+            command=self._dismiss_fire,
+        ).pack(fill="x", ipady=18, padx=48, pady=32)
+
+        self._refresh_list()
+        pending = [item for item in self.engine.list_all() if item.status == "pending"]
+        if pending:
+            self.status.config(text="Holding the line. Pending reminder on disk.")
+
+    def _build_left(self, parent: object) -> None:
+        """Reminders stay on the left. ASK output never lands here."""
+        tk = self.tk
+
         self.clear_all_btn = tk.Button(
-            self.root,
+            parent,
             text="CLEAR ALL",
             font=("Arial", 16, "bold"),
             bg="#2A2A2A",
@@ -164,10 +216,10 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._clear_all,
         )
-        self.clear_all_btn.pack(side="bottom", fill="x", ipady=8, padx=28, pady=(2, 2))
+        self.clear_all_btn.pack(side="bottom", fill="x", ipady=8, pady=(2, 2))
 
         tk.Label(
-            self.root,
+            parent,
             text="BATTLE BUDDY",
             font=("Arial", 28, "bold"),
             fg=_FLAME,
@@ -175,7 +227,7 @@ class BattleBuddyApp:
         ).pack(pady=(4, 0))
 
         tk.Label(
-            self.root,
+            parent,
             text="Speak it once. It holds the line.",
             font=("Arial", 14),
             fg=_FG,
@@ -183,7 +235,7 @@ class BattleBuddyApp:
         ).pack(pady=(2, 2))
 
         self.game_line = tk.Label(
-            self.root,
+            parent,
             text=status_line(None),
             font=("Arial", 12),
             fg=_MUTED,
@@ -191,15 +243,10 @@ class BattleBuddyApp:
         )
         self.game_line.pack(pady=(0, 6))
 
-        self._field_caption(
-            self.root,
-            "REMINDER",
-            "Lock a time reminder here",
-            padx=28,
-        )
+        self._field_caption(parent, "REMINDER", "Lock a time reminder here")
 
         self.entry = tk.Entry(
-            self.root,
+            parent,
             font=("Arial", 20),
             bg=_INPUT_BG,
             fg=_FG,
@@ -209,12 +256,12 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
         )
-        self.entry.pack(fill="x", ipady=6, padx=28, pady=4)
+        self.entry.pack(fill="x", ipady=6, pady=4)
         self.entry.bind("<Return>", lambda _event: self._lock())
         self.entry.focus_set()
 
-        actions = tk.Frame(self.root, bg=_BG)
-        actions.pack(fill="x", padx=28, pady=(6, 4))
+        actions = tk.Frame(parent, bg=_BG)
+        actions.pack(fill="x", pady=(6, 4))
         speak_on = stt_available()
         self.lock_btn = tk.Button(
             actions,
@@ -253,21 +300,17 @@ class BattleBuddyApp:
             self.speak_btn = None
 
         self.status = tk.Label(
-            self.root,
+            parent,
             text="One action. Lock a reminder. No account.",
             font=("Arial", 16),
             fg=_FG,
             bg=_BG,
-            wraplength=660,
-            justify="left",
+            anchor="w",
         )
-        self.status.pack(fill="x", **pad)
+        self.status.pack(fill="x", pady=4)
 
-        self._build_databank()
-        self._build_ask()
-
-        list_frame = tk.Frame(self.root, bg=_BG)
-        list_frame.pack(fill="both", expand=True, padx=28, pady=(4, 4))
+        list_frame = tk.Frame(parent, bg=_BG)
+        list_frame.pack(fill="both", expand=True, pady=(4, 4))
         tk.Label(
             list_frame,
             text="ON DISK",
@@ -299,40 +342,6 @@ class BattleBuddyApp:
         self.list_canvas.bind("<Button-5>", self._wheel)
         self.list_canvas.bind("<MouseWheel>", self._wheel)
 
-        self._overlay = tk.Frame(self.root, bg=_FIRE_BG)
-        tk.Label(
-            self._overlay,
-            text="FIRE",
-            font=("Arial", 80, "bold"),
-            fg=_FIRE_FG,
-            bg=_FIRE_BG,
-        ).pack(pady=(80, 12))
-        self.fire_text = tk.Label(
-            self._overlay,
-            text="",
-            font=("Arial", 28, "bold"),
-            fg=_FG,
-            bg=_FIRE_BG,
-            wraplength=640,
-        )
-        self.fire_text.pack(pady=12, padx=24)
-        tk.Button(
-            self._overlay,
-            text="SEEN",
-            font=("Arial", 24, "bold"),
-            bg=_FIRE_FG,
-            fg=_FIRE_BG,
-            activebackground="#FFF38A",
-            relief="flat",
-            cursor="hand2",
-            command=self._dismiss_fire,
-        ).pack(fill="x", ipady=18, padx=48, pady=32)
-
-        self._refresh_list()
-        pending = [item for item in self.engine.list_all() if item.status == "pending"]
-        if pending:
-            self.status.config(text="Holding the line. Pending reminder on disk.")
-
     def _field_caption(
         self, parent: object, title: str, hint: str = "", *, padx: int = 0
     ) -> None:
@@ -362,11 +371,11 @@ class BattleBuddyApp:
             anchor="w",
         ).pack(side="left", padx=(12, 0))
 
-    def _build_databank(self) -> None:
+    def _build_databank(self, parent: object) -> None:
         """Paste a URL. The app fetches. ASK searches local files. No chat."""
         tk = self.tk
-        box = tk.Frame(self.root, bg=_BG)
-        box.pack(fill="x", padx=28, pady=(4, 4))
+        box = tk.Frame(parent, bg=_BG)
+        box.pack(fill="x", pady=(4, 4))
 
         self.databank_header = tk.Label(
             box,
@@ -415,8 +424,6 @@ class BattleBuddyApp:
             font=("Arial", 14),
             fg=_FG,
             bg=_BG,
-            wraplength=660,
-            justify="left",
             anchor="w",
         )
         self.databank_status.pack(fill="x", pady=(0, 4))
@@ -425,11 +432,11 @@ class BattleBuddyApp:
         self.source_box.pack(fill="x")
         self._refresh_sources()
 
-    def _build_ask(self) -> None:
-        """ASK + output sit above the reminder list so the answer cannot vanish."""
+    def _build_ask(self, parent: object) -> None:
+        """ASK + output fill the right column. This pane is the only ASK dump."""
         tk = self.tk
-        box = tk.Frame(self.root, bg=_BG)
-        box.pack(fill="x", padx=28, pady=(4, 4))
+        box = tk.Frame(parent, bg=_BG)
+        box.pack(fill="both", expand=True, pady=(4, 4))
 
         self._field_caption(box, "ASK YOUR QUESTION")
 
@@ -462,8 +469,8 @@ class BattleBuddyApp:
         )
         self.ask_btn.pack(side="left", ipady=8, padx=(8, 0))
 
-        pane = tk.Frame(box, bg=_INPUT_BG, height=56)
-        pane.pack(fill="x", pady=(0, 4))
+        pane = tk.Frame(box, bg=_INPUT_BG, height=220)
+        pane.pack(fill="both", expand=True, pady=(0, 4))
         pane.pack_propagate(False)
         self.ask_out = tk.Text(
             pane,
@@ -475,11 +482,14 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
             wrap="word",
-            height=4,
+            height=8,
             state="disabled",
             cursor="arrow",
         )
-        self.ask_out.pack(fill="both", expand=True)
+        scroll = tk.Scrollbar(pane, command=self.ask_out.yview)
+        self.ask_out.config(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.ask_out.pack(side="left", fill="both", expand=True)
 
     def _add_fetch(self) -> None:
         if self._fetching:
@@ -560,7 +570,7 @@ class BattleBuddyApp:
                 fg=_MUTED,
                 bg=_BG,
                 anchor="w",
-                wraplength=660,
+                wraplength=520,
                 justify="left",
             ).pack(fill="x", pady=1)
 
@@ -617,19 +627,9 @@ class BattleBuddyApp:
             pass
 
     def _show_ask(self, text: str) -> None:
-        """Write the ASK result on the pane and the labels he already sees."""
+        """Write the ASK result on the right pane only."""
         shown = (text or "").strip()
         self._set_ask_out(shown)
-        for label in (
-            getattr(self, "databank_status", None),
-            getattr(self, "status", None),
-        ):
-            if label is None:
-                continue
-            try:
-                label.config(text=shown)
-            except Exception:
-                continue
 
     def _set_ask_out(self, text: str) -> None:
         pane = getattr(self, "ask_out", None)
@@ -749,7 +749,7 @@ class BattleBuddyApp:
             font=("Arial", 16),
             fg=_FG,
             bg=_INPUT_BG,
-            wraplength=640,
+            wraplength=480,
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=12, pady=(10, 2))
@@ -882,7 +882,12 @@ class BattleBuddyApp:
             return
         self._game_name = name
         self._refresh_sources()
-        self._show_ask(switched_databank_line(name))
+        notice = switched_databank_line(name)
+        self._show_ask(notice)
+        try:
+            self.databank_status.config(text=notice)
+        except Exception:
+            pass
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""
