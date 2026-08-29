@@ -65,6 +65,25 @@ def row_clock_text(status: str, due_at: str, now: datetime | None = None) -> str
     return format_countdown(remaining_seconds(due_at, now))
 
 
+def is_named_game(name: str | None) -> bool:
+    """True when detect has a real game name, not a blank flicker."""
+    return bool((name or "").strip())
+
+
+def ask_visible_message(result: object) -> str:
+    """Text ASK must put on the visible labels. Local search only."""
+    output = getattr(result, "output", None)
+    if callable(output):
+        text = str(output())
+    else:
+        text = str(getattr(result, "message", "") or "")
+    return text.strip()
+
+
+def switched_databank_line(game: str | None) -> str:
+    return f"Switched databank to {game_slug(game)}."
+
+
 def _local_stamp(iso: str) -> str:
     parsed = datetime.fromisoformat(iso)
     if parsed.tzinfo is None:
@@ -204,6 +223,8 @@ class BattleBuddyApp:
             justify="left",
         )
         self.status.pack(fill="x", **pad)
+
+        self._build_ask()
 
         tk.Label(
             self.root,
@@ -356,6 +377,12 @@ class BattleBuddyApp:
         self.source_box.pack(fill="x")
         self._refresh_sources()
 
+    def _build_ask(self) -> None:
+        """ASK + output sit above the reminder list so the answer cannot vanish."""
+        tk = self.tk
+        box = tk.Frame(self.root, bg=_BG)
+        box.pack(fill="x", padx=28, pady=(4, 4))
+
         self.ask_entry = tk.Entry(
             box,
             font=("Arial", 18),
@@ -367,7 +394,7 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
         )
-        self.ask_entry.pack(fill="x", ipady=14, pady=(10, 0))
+        self.ask_entry.pack(fill="x", ipady=14)
         self.ask_entry.bind("<Return>", lambda _event: self._ask())
 
         self.ask_btn = tk.Button(
@@ -384,8 +411,11 @@ class BattleBuddyApp:
         )
         self.ask_btn.pack(fill="x", ipady=16, pady=(8, 4))
 
+        pane = tk.Frame(box, bg=_INPUT_BG, height=168)
+        pane.pack(fill="x", pady=(0, 4))
+        pane.pack_propagate(False)
         self.ask_out = tk.Text(
-            box,
+            pane,
             font=("Arial", 14),
             bg=_INPUT_BG,
             fg=_FG,
@@ -394,11 +424,11 @@ class BattleBuddyApp:
             highlightbackground=_FLAME,
             highlightcolor=_FLAME,
             wrap="word",
-            height=6,
+            height=8,
             state="disabled",
             cursor="arrow",
         )
-        self.ask_out.pack(fill="x", pady=(0, 4))
+        self.ask_out.pack(fill="both", expand=True)
 
     def _add_fetch(self) -> None:
         if self._fetching:
@@ -487,7 +517,7 @@ class BattleBuddyApp:
         """Search saved page text in the current game folder. Local only."""
         question = str(self.ask_entry.get()).strip()
         result = ask_pages(self.databank, self._game_name, question)
-        self._set_ask_out(result.output())
+        self._show_ask(ask_visible_message(result))
         if not result.ok:
             return
         try:
@@ -495,6 +525,21 @@ class BattleBuddyApp:
             self.ask_entry.focus_set()
         except Exception:
             pass
+
+    def _show_ask(self, text: str) -> None:
+        """Write the ASK result on the pane and the labels he already sees."""
+        shown = (text or "").strip()
+        self._set_ask_out(shown)
+        for label in (
+            getattr(self, "databank_status", None),
+            getattr(self, "status", None),
+        ):
+            if label is None:
+                continue
+            try:
+                label.config(text=shown)
+            except Exception:
+                continue
 
     def _set_ask_out(self, text: str) -> None:
         pane = getattr(self, "ask_out", None)
@@ -735,11 +780,19 @@ class BattleBuddyApp:
                 self.game_line.config(text=text)
         except Exception:
             return
-        old_slug = game_slug(self._game_name)
-        self._game_name = name
-        if game_slug(name) != old_slug:
+        if not is_named_game(name):
+            return
+        old = self._game_name
+        if not is_named_game(old):
+            self._game_name = name
             self._refresh_sources()
-            self._set_ask_out("")
+            return
+        if game_slug(old) == game_slug(name):
+            self._game_name = name
+            return
+        self._game_name = name
+        self._refresh_sources()
+        self._show_ask(switched_databank_line(name))
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""
