@@ -9,6 +9,8 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from battlebuddy.databank.slug import databank_label, game_slug
+from battlebuddy.databank.store import DatabankStore
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -102,8 +104,12 @@ class BattleBuddyApp:
         self.root = tk.Tk()
         self.root.title("Battle Buddy")
         self.root.configure(bg=_BG)
-        self.root.minsize(640, 720)
-        self.root.geometry("760x900")
+        self.databank = DatabankStore()
+        self._game_name: str | None = None
+        self._fetching = False
+
+        self.root.minsize(640, 800)
+        self.root.geometry("760x980")
 
         self._build()
         self.root.after(_POLL_MS, self._tick)
@@ -220,6 +226,8 @@ class BattleBuddyApp:
         )
         self.clear_all_btn.pack(side="bottom", fill="x", ipady=14, padx=28, pady=(4, 8))
 
+        self._build_databank()
+
         list_frame = tk.Frame(self.root, bg=_BG)
         list_frame.pack(fill="both", expand=True, padx=28, pady=(4, 4))
         tk.Label(
@@ -286,6 +294,150 @@ class BattleBuddyApp:
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
+
+    def _build_databank(self) -> None:
+        """Paste a URL. The app fetches. Quiet list. No chat."""
+        tk = self.tk
+        box = tk.Frame(self.root, bg=_BG)
+        box.pack(side="bottom", fill="x", padx=28, pady=(4, 4))
+
+        self.databank_header = tk.Label(
+            box,
+            text=databank_label(self._game_name),
+            font=("Arial", 14, "bold"),
+            fg=_FLAME,
+            bg=_BG,
+            anchor="w",
+        )
+        self.databank_header.pack(fill="x", pady=(8, 4))
+
+        self.url_entry = tk.Entry(
+            box,
+            font=("Arial", 18),
+            bg=_INPUT_BG,
+            fg=_FG,
+            insertbackground=_FLAME,
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=_FLAME,
+            highlightcolor=_FLAME,
+        )
+        self.url_entry.pack(fill="x", ipady=14)
+        self.url_entry.insert(0, "https://")
+        self.url_entry.bind("<Return>", lambda _event: self._add_fetch())
+
+        self.fetch_btn = tk.Button(
+            box,
+            text="ADD / FETCH",
+            font=("Arial", 22, "bold"),
+            bg=_FLAME,
+            fg=_BG,
+            activebackground="#FF8A30",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=self._add_fetch,
+        )
+        self.fetch_btn.pack(fill="x", ipady=16, pady=(8, 4))
+
+        self.databank_status = tk.Label(
+            box,
+            text="Paste a public wiki URL. The app fetches it. No account.",
+            font=("Arial", 14),
+            fg=_FG,
+            bg=_BG,
+            wraplength=660,
+            justify="left",
+            anchor="w",
+        )
+        self.databank_status.pack(fill="x", pady=(0, 4))
+
+        self.source_box = tk.Frame(box, bg=_BG)
+        self.source_box.pack(fill="x")
+        self._refresh_sources()
+
+    def _add_fetch(self) -> None:
+        if self._fetching:
+            return
+        url = str(self.url_entry.get()).strip()
+        if not url or url in {"http://", "https://"}:
+            self.databank_status.config(text="Paste a public http or https URL.")
+            return
+        self._fetching = True
+        self.fetch_btn.config(state="disabled", text="FETCHING")
+        self.databank_status.config(text="Fetching. Public GET only.")
+        game = self._game_name
+        threading.Thread(target=self._fetch_worker, args=(url, game), daemon=True).start()
+
+    def _fetch_worker(self, url: str, game: str | None) -> None:
+        try:
+            result = self.databank.add_url(game, url)
+        except Exception:
+            result = None
+        try:
+            self.root.after(0, lambda r=result, g=game: self._fetch_done(r, g))
+        except Exception:
+            self._fetching = False
+
+    def _fetch_done(self, result: object, game: str | None) -> None:
+        self._fetching = False
+        try:
+            self.fetch_btn.config(state="normal", text="ADD / FETCH")
+        except Exception:
+            pass
+        if result is None:
+            self.databank_status.config(text="Fetch failed.")
+            return
+        ok = bool(getattr(result, "ok", False))
+        message = str(getattr(result, "message", "Fetch failed."))
+        title = str(getattr(result, "title", "")).strip()
+        if ok:
+            label = title or "page"
+            slug = game_slug(game)
+            self.databank_status.config(text=f"Saved. {label} → {slug}.")
+            try:
+                self.url_entry.delete(0, "end")
+                self.url_entry.insert(0, "https://")
+            except Exception:
+                pass
+        else:
+            self.databank_status.config(text=message)
+        self._refresh_sources()
+
+    def _refresh_sources(self) -> None:
+        try:
+            self.databank_header.config(text=databank_label(self._game_name))
+        except Exception:
+            pass
+        try:
+            for child in self.source_box.winfo_children():
+                child.destroy()
+        except Exception:
+            return
+        tk = self.tk
+        sources = self.databank.list_sources(self._game_name)
+        if not sources:
+            tk.Label(
+                self.source_box,
+                text="No sources on disk for this game.",
+                font=("Arial", 12),
+                fg=_MUTED,
+                bg=_BG,
+                anchor="w",
+            ).pack(fill="x", pady=2)
+            return
+        for item in sources:
+            line = item.title or item.url
+            tk.Label(
+                self.source_box,
+                text=line,
+                font=("Arial", 12),
+                fg=_MUTED,
+                bg=_BG,
+                anchor="w",
+                wraplength=660,
+                justify="left",
+            ).pack(fill="x", pady=1)
 
     def _size_list_window(self, event: object) -> None:
         width = int(getattr(event, "width", 0) or 0)
@@ -515,6 +667,10 @@ class BattleBuddyApp:
                 self.game_line.config(text=text)
         except Exception:
             return
+        old_slug = game_slug(self._game_name)
+        self._game_name = name
+        if game_slug(name) != old_slug:
+            self._refresh_sources()
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""
