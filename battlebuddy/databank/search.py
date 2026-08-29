@@ -38,6 +38,15 @@ _STOP = {
     "who",
     "with",
 }
+_WEAK = {
+    "get",
+    "make",
+    "need",
+    "please",
+    "production",
+    "start",
+    "want",
+}
 _MAX_HITS = 3
 _SNIP_WORDS = 28
 _EMPTY = "No pages on disk for this game. ADD / FETCH a link first."
@@ -88,6 +97,11 @@ def query_terms(question: str) -> list[str]:
     return terms
 
 
+def content_terms(terms: list[str]) -> list[str]:
+    """Distinctive words a hit must contain. Weak verbs cannot carry a hit."""
+    return [term for term in terms if term not in _WEAK]
+
+
 def ask_pages(store: DatabankStore, game: str | None, question: str) -> AskResult:
     """Search the same folder paste/fetch uses. Local files only."""
     return search_folder(store.folder(game), question)
@@ -102,7 +116,8 @@ def search_folder(folder: Path, question: str) -> AskResult:
     if not files:
         return AskResult(ok=True, empty=True, message=_EMPTY)
     terms = query_terms(text)
-    if not terms:
+    needed = content_terms(terms)
+    if not needed:
         return AskResult(ok=True, empty=False, message=_NO_MATCH)
     hits: list[Hit] = []
     for path in files:
@@ -110,7 +125,7 @@ def search_folder(folder: Path, question: str) -> AskResult:
             body = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        hit = _best_hit(body, terms)
+        hit = _best_hit(body, terms, needed)
         if hit is not None:
             hits.append(hit)
     hits.sort(key=lambda item: item.score, reverse=True)
@@ -120,7 +135,7 @@ def search_folder(folder: Path, question: str) -> AskResult:
     return AskResult(ok=True, empty=False, message="Match on disk.", hits=kept)
 
 
-def _best_hit(body: str, terms: list[str]) -> Hit | None:
+def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
     lines = body.splitlines()
     title = (lines[0].strip() if lines else "") or "untitled"
     words = _WORD.findall(body.lower())
@@ -130,12 +145,17 @@ def _best_hit(body: str, terms: list[str]) -> Hit | None:
     best_start = 0
     window = _SNIP_WORDS
     if len(words) <= window:
+        if not _has_content(words, needed):
+            return None
         score = _score(words, terms)
         if score <= 0:
             return None
-        return Hit(title=title, snippet=_clip(body, terms), score=score)
+        return Hit(title=title, snippet=_clip(body, needed), score=score)
     for start in range(0, len(words) - window + 1, 4):
-        score = _score(words[start : start + window], terms)
+        chunk = words[start : start + window]
+        if not _has_content(chunk, needed):
+            continue
+        score = _score(chunk, terms)
         if score > best_score:
             best_score = score
             best_start = start
@@ -145,19 +165,24 @@ def _best_hit(body: str, terms: list[str]) -> Hit | None:
     return Hit(title=title, snippet=snippet, score=best_score)
 
 
+def _has_content(words: list[str], needed: list[str]) -> bool:
+    bag = set(words)
+    return any(term in bag for term in needed)
+
+
 def _score(words: list[str], terms: list[str]) -> int:
     bag = set(words)
     return sum(1 for term in terms if term in bag)
 
 
-def _clip(body: str, terms: list[str]) -> str:
+def _clip(body: str, needed: list[str]) -> str:
     words = _WORD.findall(body)
     if not words:
         return ""
     lower = [word.lower() for word in words]
     start = 0
     for index, word in enumerate(lower):
-        if word in terms:
+        if word in needed:
             start = max(0, index - 8)
             break
     return " ".join(words[start : start + _SNIP_WORDS])

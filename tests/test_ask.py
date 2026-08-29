@@ -86,6 +86,41 @@ class SearchFolderTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("Type a question", result.message)
 
+    def test_spear_question_without_spear_is_no_match(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            None,
+            "https://example.com/wiki",
+            "Manor Lords Wiki",
+            "Welcome. Start production with ale. Baron Hildebolt holds the manor.",
+        )
+        result = ask_pages(store, None, "How do I start a spear production?")
+        self.assertTrue(result.ok)
+        self.assertFalse(result.empty)
+        self.assertEqual(result.hits, ())
+        self.assertIn("Nothing invented", result.output())
+        self.assertNotIn("ale", result.output().lower())
+        self.assertNotIn("hildebolt", result.output().lower())
+        self.assertNotIn("baron", result.output().lower())
+
+    def test_spear_on_disk_snippet_includes_spear(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            None,
+            "https://example.com/wiki/spear",
+            "Spear",
+            "A spear is a hunting weapon. Craft a spear at the smithy.",
+        )
+        result = ask_pages(store, None, "How do I start a spear production?")
+        self.assertTrue(result.ok)
+        self.assertTrue(result.hits)
+        self.assertIn("spear", result.output().lower())
+        self.assertNotIn("Nothing invented", result.output())
+
     def test_does_not_call_fetch_or_a_model(self) -> None:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -101,6 +136,10 @@ class AskUiSourceTest(unittest.TestCase):
     def test_ask_box_and_local_search_hooks(self) -> None:
         source = Path(ui_app.__file__).read_text(encoding="utf-8")
         self.assertIn('text="ASK"', source)
+        self.assertIn('"ASK YOUR QUESTION"', source)
+        self.assertIn('"REMINDER"', source)
+        self.assertIn("Lock a time reminder here", source)
+        self.assertIn("Paste a wiki URL here", source)
         self.assertIn("ask_pages", source)
         self.assertIn("self.ask_entry", source)
         self.assertIn("self.ask_out", source)
@@ -242,6 +281,40 @@ class AskUiTest(unittest.TestCase):
             self.assertEqual(str(app.databank_status.cget("text")), expected)
             self.assertEqual(str(app.status.cget("text")), expected)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
+        finally:
+            app._on_close()
+
+    def test_spear_ask_needs_spear_on_disk(self) -> None:
+        store = DatabankStore(self.home)
+        store.save_page(
+            None,
+            "https://example.com/wiki",
+            "Manor Lords Wiki",
+            "Welcome. Start production with ale. Baron Hildebolt holds the manor.",
+        )
+        app = self._app()
+        try:
+            app.ask_entry.insert(0, "How do I start a spear production?")
+            app._ask()
+            miss = app.ask_out.get("1.0", "end-1c")
+            self.assertIn("Nothing invented", miss)
+            self.assertNotIn("ale", miss.lower())
+            self.assertNotIn("hildebolt", miss.lower())
+        finally:
+            app._on_close()
+
+        store.save_page(
+            None,
+            "https://example.com/wiki/spear",
+            "Spear",
+            "A spear is a hunting weapon. Craft a spear at the smithy.",
+        )
+        app = self._app()
+        try:
+            app.ask_entry.insert(0, "How do I start a spear production?")
+            app._ask()
+            hit = app.ask_out.get("1.0", "end-1c").lower()
+            self.assertIn("spear", hit)
         finally:
             app._on_close()
 

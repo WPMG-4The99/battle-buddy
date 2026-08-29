@@ -167,6 +167,13 @@ class BattleBuddyApp:
         )
         self.game_line.pack(pady=(0, 12))
 
+        self._field_caption(
+            self.root,
+            "REMINDER",
+            "Lock a time reminder here",
+            padx=28,
+        )
+
         self.entry = tk.Entry(
             self.root,
             font=("Arial", 20),
@@ -317,6 +324,36 @@ class BattleBuddyApp:
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
 
+    def _field_caption(
+        self, parent: object, title: str, hint: str = "", *, padx: int = 0
+    ) -> None:
+        """Large high-contrast name above a box. Hint stays outside the entry."""
+        tk = self.tk
+        pack = {"fill": "x", "pady": (8, 0)}
+        if padx:
+            pack["padx"] = padx
+        tk.Label(
+            parent,
+            text=title,
+            font=("Arial", 16, "bold"),
+            fg=_FLAME,
+            bg=_BG,
+            anchor="w",
+        ).pack(**pack)
+        if not hint:
+            return
+        hint_pack = {"fill": "x", "pady": (0, 4)}
+        if padx:
+            hint_pack["padx"] = padx
+        tk.Label(
+            parent,
+            text=hint,
+            font=("Arial", 14),
+            fg=_FG,
+            bg=_BG,
+            anchor="w",
+        ).pack(**hint_pack)
+
     def _build_databank(self) -> None:
         """Paste a URL. The app fetches. ASK searches local files. No chat."""
         tk = self.tk
@@ -332,6 +369,8 @@ class BattleBuddyApp:
             anchor="w",
         )
         self.databank_header.pack(fill="x", pady=(8, 4))
+
+        self._field_caption(box, "URL", "Paste a wiki URL here")
 
         self.url_entry = tk.Entry(
             box,
@@ -382,6 +421,8 @@ class BattleBuddyApp:
         tk = self.tk
         box = tk.Frame(self.root, bg=_BG)
         box.pack(fill="x", padx=28, pady=(4, 4))
+
+        self._field_caption(box, "ASK YOUR QUESTION")
 
         self.ask_entry = tk.Entry(
             box,
