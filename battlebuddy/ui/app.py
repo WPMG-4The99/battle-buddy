@@ -9,7 +9,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
-from battlebuddy.databank.reason import present_ask
+from battlebuddy.databank.reason import present_ask, start_bundled_server, stop_bundled_server
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
@@ -166,6 +166,7 @@ class BattleBuddyApp:
 
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        threading.Thread(target=self._warm_bundled_llm, daemon=True).start()
         self.root.after(_POLL_MS, self._tick)
 
     def run(self) -> None:
@@ -1000,8 +1001,19 @@ class BattleBuddyApp:
                 continue
         self._set_ask_out("")
 
+    def _warm_bundled_llm(self) -> None:
+        """Background only. Missing GGUF is fine. Reminder clocks stay live."""
+        try:
+            start_bundled_server(wait=True)
+        except Exception:
+            return
+
     def _on_close(self) -> None:
         self._clear_drafts()
+        try:
+            stop_bundled_server()
+        except Exception:
+            pass
         try:
             self.root.destroy()
         except Exception:

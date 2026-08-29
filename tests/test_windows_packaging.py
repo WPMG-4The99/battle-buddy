@@ -44,6 +44,9 @@ class WindowsPackagingTest(unittest.TestCase):
             self.assertIn(f'"{name}"', text)
         self.assertIn("speech_recognition", text)
         self.assertIn("collect_submodules", text)
+        self.assertIn("battlebuddy.databank.reason", text)
+        self.assertIn("datas=[]", text)
+        self.assertNotIn(".gguf", text)
 
     def test_installer_names_battle_buddy_and_is_no_admin(self) -> None:
         iss = ROOT / "installer" / "BattleBuddy.iss"
@@ -66,6 +69,14 @@ class WindowsPackagingTest(unittest.TestCase):
         self.assertIn(".venv-build", text)
         self.assertIn("BattleBuddy-Setup.exe", text)
         self.assertIn("does not cross-compile", text)
+        self.assertIn("dist\\BattleBuddy\\llm", text)
+        self.assertIn("llama-server.exe", text)
+        self.assertIn("SmolLM2-360M-Instruct-Q4_K_M.gguf", text)
+        self.assertIn("https://huggingface.co/unsloth/SmolLM2-360M-Instruct-GGUF/resolve/391ed11137586e383b1be0fab9acf01d282c2e11/SmolLM2-360M-Instruct-Q4_K_M.gguf", text)
+        self.assertIn("16c7f1667fea34bacad196a57b548effcb37614db4ab5677a20c8c7b823b9e63", text)
+        self.assertIn("llama-b10621-bin-win-cpu-x64.zip", text)
+        self.assertIn("0e8b65e650e369f70f8307d890508886f171ef4fb00facccddd4a1b7ffdaca51", text)
+        self.assertIn("qwen2.5-0.5b-instruct-q4_k_m.gguf", text)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,9 @@ Double-click `BattleBuddy.exe` or run `BattleBuddy-Setup.exe`. The high-contrast
 
 Setup is per-user, no admin. Shortcuts: **Battle Buddy** on the Desktop and Start Menu. State stays in `%USERPROFILE%\.battlebuddy`. Uninstall is allowed.
 
-On a Windows box you can build those files with `.\scripts\build-windows.ps1` (PyInstaller is build-only). Do not build the exe on Linux.
+On a Windows box you can build those files with `.\scripts\build-windows.ps1` (PyInstaller is build-only). That script also downloads a tiny local CPU model (SmolLM2-360M Instruct Q4, Apache-2.0) plus `llama-server` into `dist\BattleBuddy\llm\`. Not in git. No Ollama required. If Hermes/Ollama is already on 11434 or LM Studio on 1234, ASK uses that first. If the bundled file is missing or cold, ASK still prints the extracted recipe. Reminder loop does not need the model.
+
+Do not build the exe on Linux.
 
 ## Run it from source — Windows (PowerShell or cmd)
 

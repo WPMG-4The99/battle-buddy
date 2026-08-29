@@ -127,6 +127,8 @@ a = Analysis(
     ["battlebuddy/win_entry.py"],
     pathex=[],
     binaries=[],
+    # GGUF and llama-server stay in dist/BattleBuddy/llm after the build script.
+    # Do not embed them in the PYZ.
     datas=[],
     hiddenimports=hiddenimports,
     hookspath=[],
