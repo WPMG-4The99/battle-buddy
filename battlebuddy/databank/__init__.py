@@ -1,6 +1,7 @@
 """Local wiki databank. Paste a URL. The app fetches. No account."""
 
 from battlebuddy.databank.fetch import FetchResult, fetch_page
+from battlebuddy.databank.reason import present_ask
 from battlebuddy.databank.search import AskResult, Hit, ask_pages, search_folder
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore, Source
@@ -18,6 +19,7 @@ __all__ = [
     "databank_label",
     "fetch_page",
     "game_slug",
+    "present_ask",
     "search_folder",
     "wiki_home_for",
 ]

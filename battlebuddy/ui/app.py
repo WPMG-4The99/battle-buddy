@@ -9,6 +9,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from battlebuddy.databank.reason import present_ask
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
@@ -581,7 +582,8 @@ class BattleBuddyApp:
         question = str(self.ask_entry.get()).strip()
         result = ask_pages(self.databank, self._game_name, question)
         if not should_hunt(self.databank, self._game_name, question, result):
-            self._show_ask(ask_visible_message(rank_ask_result(result, question)))
+            ranked = rank_ask_result(result, question)
+            self._show_ask(present_ask(ranked, question, self.databank, self._game_name))
             if result.ok:
                 self._clear_ask_box()
             return
@@ -599,14 +601,20 @@ class BattleBuddyApp:
     def _ask_hunt_worker(self, question: str, game: str | None) -> None:
         try:
             result = ask_or_hunt(self.databank, game, question)
+            shown = (
+                present_ask(result, question, self.databank, game)
+                if result is not None
+                else None
+            )
         except Exception:
             result = None
+            shown = None
         try:
-            self.root.after(0, lambda r=result: self._ask_hunt_done(r))
+            self.root.after(0, lambda r=result, s=shown: self._ask_hunt_done(r, s))
         except Exception:
             self._asking = False
 
-    def _ask_hunt_done(self, result: object) -> None:
+    def _ask_hunt_done(self, result: object, shown: str | None = None) -> None:
         self._asking = False
         try:
             self.ask_btn.config(state="normal")
@@ -616,7 +624,7 @@ class BattleBuddyApp:
             self._show_ask("No match on the wiki. Nothing invented.")
             self._refresh_sources()
             return
-        self._show_ask(ask_visible_message(result))
+        self._show_ask(shown if shown is not None else ask_visible_message(result))
         self._refresh_sources()
 
     def _clear_ask_box(self) -> None:

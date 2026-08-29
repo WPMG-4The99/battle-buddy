@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlparse
 
+from battlebuddy.databank.clean import strip_markup
 from battlebuddy.databank.fetch import fetch_page, normalize_url
 from battlebuddy.databank.search import (
     AskResult,
@@ -38,7 +39,6 @@ _STRONG_CRAFT_WORDS = ("obtained", "produced", "backyard")
 _STRONG_CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _HOWTO = {"how", "start", "produce", "production", "make", "craft", "obtain"}
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
-_HTML_TAG = re.compile(r"<[^>]+>")
 _WORD = re.compile(r"[a-z0-9]+")
 _KNOWN_HOSTS = (
     "wiki.hoodedhorse.com",
@@ -485,7 +485,7 @@ def _lead_with_search_recipe(
         if not key or key in seen:
             continue
         seen.add(key)
-        recipes.append(Hit(title=hit.title, snippet=hit.snippet, score=100))
+        recipes.append(Hit(title=hit.title, snippet=strip_markup(hit.snippet), score=100))
     if not recipes:
         return result
     rest = [item for item in result.hits if item.title.strip().lower() not in seen]
@@ -529,8 +529,7 @@ def _is_howto(question: str) -> bool:
 
 
 def _plain_snippet(raw: object) -> str:
-    text = _HTML_TAG.sub(" ", str(raw or ""))
-    return " ".join(text.split())
+    return strip_markup(str(raw or ""))
 
 
 def _has_lang_suffix(text: str) -> bool:

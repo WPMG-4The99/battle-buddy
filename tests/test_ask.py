@@ -134,6 +134,37 @@ class SearchFolderTest(unittest.TestCase):
         hunt.assert_not_called()
         self.assertIn("berries", result.output().lower())
 
+    def test_strips_icon_html_entities_and_leads_with_recipe(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        dirty = (
+            "{{Icon|Spear}} <b>Spear Militia</b> fills the barracks. "
+            "Spears: obtained from Planks and Iron Slabs at the "
+            "Blacksmith&#039;s Workshop backyard extension."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/military",
+            "Military items",
+            dirty,
+        )
+        result = ask_pages(store, "Manor Lords", "How do I start a spear production?")
+        out = result.output()
+        first = out.splitlines()[0]
+        self.assertTrue(result.hits)
+        self.assertNotIn("{{Icon", out)
+        self.assertNotIn("<b>", out)
+        self.assertNotIn("&#039;", out)
+        self.assertIn("Blacksmith's", out)
+        self.assertIn("obtained", first.lower())
+        self.assertIn("spear", first.lower())
+        self.assertIn("workshop", first.lower())
+        self.assertNotEqual(first, first.lower())
+        self.assertLess(len(first.split()), 28)
+        self.assertFalse(first.lower().startswith("spear militia"))
+        self.assertFalse(first.islower())
+
 
 class AskUiSourceTest(unittest.TestCase):
     def test_ask_box_and_local_search_hooks(self) -> None:
@@ -152,6 +183,7 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("self.ask_out", source)
         self.assertIn("self._show_ask", source)
         self.assertIn("ask_visible_message", source)
+        self.assertIn("present_ask", source)
         self.assertIn("pack_propagate(False)", source)
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="ADD / FETCH"', source)
