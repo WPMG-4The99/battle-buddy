@@ -104,11 +104,42 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("ask_pages", source)
         self.assertIn("self.ask_entry", source)
         self.assertIn("self.ask_out", source)
+        self.assertIn("self._show_ask", source)
+        self.assertIn("ask_visible_message", source)
+        self.assertIn("pack_propagate(False)", source)
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="ADD / FETCH"', source)
         self.assertIn("self._tick_clocks()", source)
         self.assertNotIn("openai", source.lower())
         self.assertNotIn("anthropic", source.lower())
+        apply_src = source.split("def _apply_game")[1].split("def ")[0]
+        self.assertNotIn('_set_ask_out("")', apply_src)
+        self.assertIn("switched_databank_line", apply_src)
+
+
+class AskVisibleMessageTest(unittest.TestCase):
+    def test_empty_folder_and_hit_are_the_ui_text(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        empty = ask_pages(store, None, "where is food")
+        shown = ui_app.ask_visible_message(empty)
+        self.assertEqual(shown, empty.output())
+        self.assertIn("ADD / FETCH", shown)
+        store.save_page(
+            None,
+            "https://example.com/wiki/food",
+            "Food",
+            "Check the granary before winter.",
+        )
+        hit = ask_pages(store, None, "where is the granary")
+        shown_hit = ui_app.ask_visible_message(hit)
+        self.assertEqual(shown_hit, hit.output())
+        self.assertIn("granary", shown_hit.lower())
+        miss = ask_pages(store, None, "nuclear reactor core")
+        shown_miss = ui_app.ask_visible_message(miss)
+        self.assertEqual(shown_miss, miss.output())
+        self.assertIn("Nothing invented", shown_miss)
 
 
 class AskUiTest(unittest.TestCase):
@@ -175,6 +206,73 @@ class AskUiTest(unittest.TestCase):
             miss = app.ask_out.get("1.0", "end-1c")
             self.assertIn("Nothing invented", miss)
             self.assertNotIn("reactor", miss.lower())
+        finally:
+            app._on_close()
+
+    def test_visible_label_shows_empty_folder_and_hit(self) -> None:
+        app = self._app()
+        try:
+            app.ask_entry.insert(0, "where is food")
+            expected = ui_app.ask_visible_message(
+                ask_pages(app.databank, app._game_name, app.ask_entry.get())
+            )
+            app._ask()
+            self.assertIn("ADD / FETCH", expected)
+            self.assertEqual(str(app.databank_status.cget("text")), expected)
+            self.assertEqual(str(app.status.cget("text")), expected)
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
+        finally:
+            app._on_close()
+
+        store = DatabankStore(self.home)
+        store.save_page(
+            None,
+            "https://example.com/wiki/food",
+            "Food",
+            "Check the granary before winter.",
+        )
+        app = self._app()
+        try:
+            app.ask_entry.insert(0, "where is the granary")
+            expected = ui_app.ask_visible_message(
+                ask_pages(app.databank, app._game_name, app.ask_entry.get())
+            )
+            app._ask()
+            self.assertIn("granary", expected.lower())
+            self.assertEqual(str(app.databank_status.cget("text")), expected)
+            self.assertEqual(str(app.status.cget("text")), expected)
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
+        finally:
+            app._on_close()
+
+    def test_detect_flicker_does_not_wipe_ask(self) -> None:
+        store = DatabankStore(self.home)
+        store.save_page(
+            None,
+            "https://example.com/wiki/food",
+            "Food",
+            "Check the granary before winter.",
+        )
+        app = self._app()
+        try:
+            app.ask_entry.insert(0, "where is the granary")
+            app._ask()
+            hit = app.ask_out.get("1.0", "end-1c")
+            self.assertIn("granary", hit.lower())
+            app._apply_game("Manor Lords")
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            self.assertEqual(app._game_name, "Manor Lords")
+            app._apply_game(None)
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            self.assertEqual(app._game_name, "Manor Lords")
+            app._apply_game("Manor Lords")
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
+            app._apply_game("RimWorld")
+            notice = ui_app.switched_databank_line("RimWorld")
+            self.assertIn("switched databank", notice.lower())
+            self.assertEqual(str(app.databank_status.cget("text")), notice)
+            self.assertEqual(str(app.status.cget("text")), notice)
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), notice)
         finally:
             app._on_close()
 
