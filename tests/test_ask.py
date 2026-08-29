@@ -145,6 +145,8 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("Paste a wiki URL here", source)
         self.assertIn("ask_pages", source)
         self.assertIn("ask_or_hunt", source)
+        self.assertIn("should_hunt", source)
+        self.assertIn("rank_ask_result", source)
         self.assertIn("Looking on the wiki.", source)
         self.assertIn("self.ask_entry", source)
         self.assertIn("self.ask_out", source)

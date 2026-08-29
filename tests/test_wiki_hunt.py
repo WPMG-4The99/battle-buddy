@@ -17,8 +17,18 @@ from battlebuddy.databank.wiki import (
     KNOWN_WIKIS,
     ask_or_hunt,
     infer_wiki_from_url,
+    rank_search_hits,
+    search_variants,
     wiki_home_for,
+    wiki_homes_for,
+    SearchHit,
 )
+
+
+_SPEAR_Q = "How do I start a spear production?"
+_RECIPE = "Spears: obtained from Planks and Iron Slabs at the Blacksmith's Workshop backyard extension."
+_APPROVAL = "Spear Militia unlocks with an Approval perk. Higher approval gives more militia."
+_WARFARE = "Spear Militia is a unit in the warfare table."
 
 
 class WikiHomeTest(unittest.TestCase):
@@ -62,6 +72,29 @@ class WikiHomeTest(unittest.TestCase):
         self.assertEqual(home.origin, "http://127.0.0.1:9")
         self.assertEqual(home.api, "http://127.0.0.1:9/api.php")
         self.assertEqual(home.article_base, "http://127.0.0.1:9/wiki/")
+        homes = wiki_homes_for("Manor Lords", store)
+        self.assertEqual([item.origin for item in homes], ["http://127.0.0.1:9"])
+
+
+class RankVariantTest(unittest.TestCase):
+    def test_search_variants_are_singular_and_plural(self) -> None:
+        self.assertEqual(search_variants(["spear"]), ["spear", "spears"])
+        self.assertEqual(search_variants(["spears"]), ["spears", "spear"])
+
+    def test_military_items_outranks_translation_and_approval(self) -> None:
+        hits = [
+            SearchHit("Approval", "Spear Militia unlocks with an Approval perk.", "https://w/Approval"),
+            SearchHit("Warfare/nl", "Spear Militia is a unit.", "https://w/Warfare/nl"),
+            SearchHit(
+                "Military items",
+                "Spears: obtained from Planks and Iron Slabs at the Blacksmith's Workshop.",
+                "https://w/Military_items",
+            ),
+        ]
+        ranked = rank_search_hits(hits, ["spear", "spears"])
+        self.assertEqual(ranked[0].title, "Military items")
+        self.assertNotEqual(ranked[0].title, "Warfare/nl")
+        self.assertNotEqual(ranked[0].title, "Approval")
 
 
 class WikiHuntHttpTest(unittest.TestCase):
@@ -90,21 +123,79 @@ class WikiHuntHttpTest(unittest.TestCase):
             "Welcome. Start production with ale. Baron Hildebolt holds the manor.",
         )
 
-    def test_homepage_dump_hunts_warfare_and_shows_spear(self) -> None:
+    def _searches(self) -> list[str]:
+        found: list[str] = []
+        for path in self.hits:
+            parsed = urlparse(path)
+            if parsed.path != "/api.php":
+                continue
+            qs = parse_qs(parsed.query)
+            found.append((qs.get("srsearch") or [""])[0])
+        return found
+
+    def test_spear_production_saves_military_items_not_approval(self) -> None:
         self._save_homepage()
-        local = ask_pages(self.store, "Manor Lords", "How do I start a spear production?")
+        local = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
         self.assertEqual(local.hits, ())
         self.assertNotIn("spear", local.output().lower())
-        result = ask_or_hunt(self.store, "Manor Lords", "How do I start a spear production?")
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
         blob = result.output().lower()
         self.assertTrue(result.hits)
         self.assertIn("spear", blob)
+        self.assertIn("plank", blob)
+        self.assertIn("iron", blob)
+        self.assertIn("blacksmith", blob)
         self.assertNotIn("ale", blob)
         self.assertNotIn("hildebolt", blob)
+        self.assertFalse(blob.lstrip().startswith("approval"))
+        self.assertIn("military", result.hits[0].title.lower())
+        self.assertNotIn("approval", result.hits[0].title.lower())
         urls = [item.url for item in self.store.list_sources("Manor Lords")]
-        self.assertTrue(any(item.endswith("/wiki/Warfare") for item in urls))
+        self.assertTrue(any(item.endswith("/wiki/Military_items") for item in urls))
+        searches = self._searches()
+        self.assertIn("spear", searches)
+        self.assertIn("spears", searches)
+        self.assertFalse(any("production" in item for item in searches))
         self.assertTrue(any("/api.php" in path for path in self.hits))
         self.assertTrue(any("srwhat=text" in path for path in self.hits))
+
+    def test_weak_local_warfare_does_not_block_hunt(self) -> None:
+        self._save_homepage()
+        self.store.save_page(
+            "Manor Lords",
+            f"{self.base}/wiki/Warfare",
+            "Warfare",
+            _WARFARE,
+        )
+        weak = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
+        self.assertTrue(weak.hits)
+        self.assertIn("spear", weak.output().lower())
+        self.assertNotIn("blacksmith", weak.output().lower())
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
+        blob = result.output().lower()
+        self.assertIn("spear", blob)
+        self.assertIn("plank", blob)
+        self.assertIn("blacksmith", blob)
+        self.assertIn("military", result.hits[0].title.lower())
+        self.assertTrue(any("srsearch=spears" in path for path in self.hits))
+
+    def test_local_military_items_recipe_does_not_network(self) -> None:
+        self.store.save_page(
+            "Manor Lords",
+            f"{self.base}/wiki/Military_items",
+            "Military items",
+            _RECIPE,
+        )
+        with patch("battlebuddy.databank.fetch.fetch_page") as fetch:
+            with patch("battlebuddy.databank.wiki.search_wiki_urls") as hunt:
+                result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
+        fetch.assert_not_called()
+        hunt.assert_not_called()
+        blob = result.output().lower()
+        self.assertIn("spear", blob)
+        self.assertIn("plank", blob)
+        self.assertIn("blacksmith", blob)
+        self.assertEqual(self.hits, [])
 
     def test_local_spear_page_does_not_hunt(self) -> None:
         self.store.save_page(
@@ -118,16 +209,28 @@ class WikiHuntHttpTest(unittest.TestCase):
                 result = ask_or_hunt(
                     self.store,
                     "Manor Lords",
-                    "How do I start a spear production?",
+                    _SPEAR_Q,
                 )
         fetch.assert_not_called()
         hunt.assert_not_called()
         self.assertIn("spear", result.output().lower())
         self.assertEqual(self.hits, [])
 
+    def test_translation_warfare_nl_is_not_preferred(self) -> None:
+        self._save_homepage()
+        self.server.RequestHandlerClass = _make_handler(self.hits, include_nl=True)
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
+        blob = result.output().lower()
+        self.assertIn("spear", blob)
+        self.assertIn("blacksmith", blob)
+        self.assertIn("military", result.hits[0].title.lower())
+        self.assertFalse(any("/nl" in hit.title.lower() for hit in result.hits))
+        urls = [item.url for item in self.store.list_sources("Manor Lords")]
+        self.assertTrue(any(item.endswith("/wiki/Military_items") for item in urls))
+
     def test_unknown_game_empty_folder_does_not_network(self) -> None:
         with patch("battlebuddy.databank.fetch.fetch_page") as fetch:
-            result = ask_or_hunt(self.store, None, "How do I start a spear production?")
+            result = ask_or_hunt(self.store, None, _SPEAR_Q)
         fetch.assert_not_called()
         self.assertTrue(result.empty)
         self.assertIn("ADD / FETCH", result.message)
@@ -143,29 +246,80 @@ class WikiHuntHttpTest(unittest.TestCase):
         self.assertNotIn("ale", result.output().lower())
         urls = [item.url for item in self.store.list_sources("Manor Lords")]
         self.assertFalse(any("Warfare" in item for item in urls))
+        self.assertFalse(any("Military" in item for item in urls))
 
     def test_off_host_search_hit_is_ignored(self) -> None:
         self._save_homepage()
         self.server.RequestHandlerClass = _make_handler(self.hits, off_host=True)
-        result = ask_or_hunt(self.store, "Manor Lords", "How do I start a spear production?")
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
         self.assertEqual(result.hits, ())
         self.assertIn("Nothing invented.", result.output())
         self.assertNotIn("spear", result.output().lower())
         urls = [item.url for item in self.store.list_sources("Manor Lords")]
         self.assertFalse(any("evil" in item for item in urls))
         self.assertFalse(any(item.endswith("/wiki/Warfare") for item in urls))
+        self.assertFalse(any(item.endswith("/wiki/Military_items") for item in urls))
         self.assertFalse(any(path.startswith("/wiki/Warfare") for path in self.hits))
+        self.assertFalse(any(path.startswith("/wiki/Military_items") for path in self.hits))
+
+    def test_two_saved_origins_hunt_both_homes(self) -> None:
+        official_hits: list[str] = []
+        fandom_hits: list[str] = []
+        official = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(official_hits))
+        fandom = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(fandom_hits, off_host=True))
+        threads = [
+            threading.Thread(target=official.serve_forever, daemon=True),
+            threading.Thread(target=fandom.serve_forever, daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+        self.addCleanup(official.shutdown)
+        self.addCleanup(official.server_close)
+        self.addCleanup(fandom.shutdown)
+        self.addCleanup(fandom.server_close)
+        official_base = f"http://{official.server_address[0]}:{official.server_address[1]}"
+        fandom_base = f"http://{fandom.server_address[0]}:{fandom.server_address[1]}"
+        self.store.save_page(
+            "Manor Lords",
+            f"{official_base}/wiki/",
+            "Manor Lords Official Wiki",
+            "Welcome to the official wiki.",
+        )
+        self.store.save_page(
+            "Manor Lords",
+            f"{fandom_base}/wiki/",
+            "Manor Lords Wiki",
+            "Welcome to the fandom wiki.",
+        )
+        homes = wiki_homes_for("Manor Lords", self.store)
+        self.assertEqual({home.origin for home in homes}, {official_base, fandom_base})
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
+        blob = result.output().lower()
+        self.assertIn("spear", blob)
+        self.assertIn("plank", blob)
+        self.assertIn("blacksmith", blob)
+        self.assertIn("military", result.hits[0].title.lower())
+        self.assertTrue(any("/api.php" in path for path in official_hits))
+        self.assertTrue(any("/api.php" in path for path in fandom_hits))
+        urls = [item.url for item in self.store.list_sources("Manor Lords")]
+        self.assertTrue(any(item.startswith(official_base) and item.endswith("/wiki/Military_items") for item in urls))
+        self.assertFalse(any("evil" in item for item in urls))
 
     def test_missing_api_falls_back_to_title_case(self) -> None:
         self._save_homepage()
         self.server.RequestHandlerClass = _make_handler(self.hits, no_api=True)
-        result = ask_or_hunt(self.store, "Manor Lords", "How do I start a spear production?")
+        result = ask_or_hunt(self.store, "Manor Lords", _SPEAR_Q)
         self.assertIn("spear", result.output().lower())
         urls = [item.url for item in self.store.list_sources("Manor Lords")]
         self.assertTrue(any(item.endswith("/wiki/Spear") for item in urls))
 
 
-def _make_handler(hits: list[str], off_host: bool = False, no_api: bool = False):
+def _make_handler(
+    hits: list[str],
+    off_host: bool = False,
+    no_api: bool = False,
+    include_nl: bool = False,
+):
     class _WikiHuntHandler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: object) -> None:
             return
@@ -188,11 +342,35 @@ def _make_handler(hits: list[str], off_host: bool = False, no_api: bool = False)
                 )
                 self._ok(body, "text/html; charset=utf-8")
                 return
+            if parsed.path == "/wiki/Military_items":
+                body = (
+                    b"<html><head><title>Military items</title></head><body>"
+                    b"<p>" + _RECIPE.encode("utf-8") + b"</p>"
+                    b"</body></html>"
+                )
+                self._ok(body, "text/html; charset=utf-8")
+                return
+            if parsed.path == "/wiki/Approval":
+                body = (
+                    b"<html><head><title>Approval</title></head><body>"
+                    b"<p>" + _APPROVAL.encode("utf-8") + b"</p>"
+                    b"</body></html>"
+                )
+                self._ok(body, "text/html; charset=utf-8")
+                return
             if parsed.path == "/wiki/Warfare":
                 body = (
                     b"<html><head><title>Warfare</title></head><body>"
                     b"<h1>Warfare</h1>"
-                    b"<p>Make a spear at the blacksmith. You need an iron slab and planks.</p>"
+                    b"<p>" + _WARFARE.encode("utf-8") + b"</p>"
+                    b"</body></html>"
+                )
+                self._ok(body, "text/html; charset=utf-8")
+                return
+            if parsed.path == "/wiki/Warfare/nl":
+                body = (
+                    b"<html><head><title>Warfare/nl</title></head><body>"
+                    b"<p>" + _WARFARE.encode("utf-8") + b"</p>"
                     b"</body></html>"
                 )
                 self._ok(body, "text/html; charset=utf-8")
@@ -210,25 +388,41 @@ def _make_handler(hits: list[str], off_host: bool = False, no_api: bool = False)
 
         def _api(self, query: str) -> None:
             qs = parse_qs(query)
-            search = (qs.get("srsearch") or [""])[0].lower()
+            search = (qs.get("srsearch") or [""])[0].lower().strip()
             what = (qs.get("srwhat") or [""])[0]
-            if what != "text" or "spear" not in search:
+            if what != "text" or " " in search or "+" in search:
                 payload = {"query": {"search": []}}
                 self._ok(json.dumps(payload).encode("utf-8"), "application/json")
                 return
-            if off_host:
-                payload = {
-                    "query": {
-                        "search": [
-                            {
-                                "title": "Warfare",
-                                "fullurl": "https://evil.example/wiki/Warfare",
-                            }
-                        ]
+            if search == "spears":
+                rows = [
+                    {
+                        "title": "Military items",
+                        "snippet": _RECIPE,
                     }
-                }
+                ]
+            elif search == "spear":
+                rows = [
+                    {"title": "Approval", "snippet": _APPROVAL},
+                    {"title": "Warfare", "snippet": _WARFARE},
+                ]
+                if include_nl:
+                    rows = [
+                        {"title": "Approval", "snippet": _APPROVAL},
+                        {"title": "Warfare/nl", "snippet": _WARFARE},
+                    ]
             else:
-                payload = {"query": {"search": [{"title": "Warfare"}]}}
+                rows = []
+            if off_host:
+                rows = [
+                    {
+                        "title": row["title"],
+                        "snippet": row["snippet"],
+                        "fullurl": f"https://evil.example/wiki/{row['title'].replace(' ', '_')}",
+                    }
+                    for row in rows
+                ]
+            payload = {"query": {"search": rows}}
             self._ok(json.dumps(payload).encode("utf-8"), "application/json")
 
         def _ok(self, body: bytes, content_type: str) -> None:

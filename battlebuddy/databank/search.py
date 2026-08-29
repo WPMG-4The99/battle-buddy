@@ -167,22 +167,30 @@ def _best_hit(body: str, terms: list[str], needed: list[str]) -> Hit | None:
 
 def _has_content(words: list[str], needed: list[str]) -> bool:
     bag = set(words)
-    return any(term in bag for term in needed)
+    return any(_term_in(bag, term) for term in needed)
 
 
 def _score(words: list[str], terms: list[str]) -> int:
     bag = set(words)
-    return sum(1 for term in terms if term in bag)
+    return sum(1 for term in terms if _term_in(bag, term))
+
+
+def _term_in(bag: set[str], term: str) -> bool:
+    """Simple singular/plural. spear on disk matches spears in the question."""
+    if term in bag:
+        return True
+    if term.endswith("s") and len(term) > 1 and term[:-1] in bag:
+        return True
+    return f"{term}s" in bag
 
 
 def _clip(body: str, needed: list[str]) -> str:
-    words = _WORD.findall(body)
+    words = _WORD.findall(body.lower())
     if not words:
         return ""
-    lower = [word.lower() for word in words]
     start = 0
-    for index, word in enumerate(lower):
-        if word in needed:
+    for index, word in enumerate(words):
+        if any(_term_in({word}, term) for term in needed):
             start = max(0, index - 8)
             break
     return " ".join(words[start : start + _SNIP_WORDS])
