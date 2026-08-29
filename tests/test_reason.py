@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
-from battlebuddy.databank.reason import local_answer, present_ask
+from battlebuddy.databank.reason import (
+    BUNDLED_PORT,
+    LOCAL_PORTS,
+    bundled_server_argv,
+    local_answer,
+    present_ask,
+    start_bundled_server,
+    stop_bundled_server,
+)
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.store import DatabankStore
 
@@ -32,7 +42,14 @@ class ReasonerSourceTest(unittest.TestCase):
         self.assertIn("11434", text)
         self.assertIn("1234", text)
         self.assertIn("8080", text)
+        self.assertIn("8765", text)
+        self.assertEqual(LOCAL_PORTS, (11434, 1234, 8080, BUNDLED_PORT))
+        self.assertEqual(BUNDLED_PORT, 8765)
+        self.assertLess(LOCAL_PORTS.index(11434), LOCAL_PORTS.index(1234))
+        self.assertLess(LOCAL_PORTS.index(1234), LOCAL_PORTS.index(8080))
+        self.assertLess(LOCAL_PORTS.index(8080), LOCAL_PORTS.index(8765))
         self.assertNotIn("api.openai.com", text)
+        self.assertNotIn("api.anthropic.com", text)
         self.assertNotIn("anthropic", text.lower())
         self.assertNotIn("import openai", text)
         self.assertNotIn("from openai", text)
@@ -128,6 +145,96 @@ class ReasonerHttpTest(unittest.TestCase):
         first = shown.splitlines()[0]
         self.assertIn("obtained", first.lower())
         self.assertFalse(first.lower().startswith("spear militia"))
+
+    def test_bundled_port_rewrites_then_falls_back_when_down(self) -> None:
+        result = ask_pages(self.store, "Manor Lords", _SPEAR_Q)
+        shown = present_ask(
+            result,
+            _SPEAR_Q,
+            self.store,
+            "Manor Lords",
+            ports=(1, 2, 3, self.port),
+        )
+        self.assertEqual(shown, _ANSWER)
+        self.server.RequestHandlerClass = _make_handler(
+            self.hits, self.bodies, fail=True
+        )
+        cleaned = result.output()
+        down = present_ask(
+            result,
+            _SPEAR_Q,
+            self.store,
+            "Manor Lords",
+            ports=(BUNDLED_PORT,),
+        )
+        self.assertEqual(down, cleaned)
+        self.assertIn("Blacksmith", down)
+
+
+class BundledServerTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._old_dir = os.environ.get("BATTLEBUDDY_LLM_DIR")
+        self.addCleanup(self._restore_dir)
+        self.addCleanup(stop_bundled_server)
+
+    def _restore_dir(self) -> None:
+        if self._old_dir is None:
+            os.environ.pop("BATTLEBUDDY_LLM_DIR", None)
+        else:
+            os.environ["BATTLEBUDDY_LLM_DIR"] = self._old_dir
+
+    def test_argv_binds_loopback_only(self) -> None:
+        exe = Path("/tmp/llama-server")
+        model = Path("/tmp/SmolLM2-360M-Instruct-Q4_K_M.gguf")
+        argv = bundled_server_argv(exe, model)
+        self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
+        self.assertEqual(argv[argv.index("--port") + 1], "8765")
+        self.assertIn("-ngl", argv)
+        self.assertEqual(argv[argv.index("-ngl") + 1], "0")
+        self.assertNotIn("0.0.0.0", argv)
+        joined = " ".join(argv)
+        self.assertNotIn("api.openai.com", joined)
+        self.assertNotIn("anthropic", joined.lower())
+
+    def test_start_skips_when_assets_missing(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        os.environ["BATTLEBUDDY_LLM_DIR"] = tmp.name
+        with patch("battlebuddy.databank.reason.any_reasoner_listening", return_value=False):
+            with patch("battlebuddy.databank.reason.subprocess.Popen") as popen:
+                self.assertFalse(start_bundled_server())
+        popen.assert_not_called()
+
+    def test_start_skips_when_another_loopback_server_is_up(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = Path(tmp.name)
+        (folder / "llama-server").write_text("x", encoding="utf-8")
+        (folder / "SmolLM2-360M-Instruct-Q4_K_M.gguf").write_bytes(b"gguf")
+        os.environ["BATTLEBUDDY_LLM_DIR"] = str(folder)
+        with patch("battlebuddy.databank.reason.any_reasoner_listening", return_value=True):
+            with patch("battlebuddy.databank.reason.subprocess.Popen") as popen:
+                self.assertFalse(start_bundled_server())
+        popen.assert_not_called()
+
+    def test_start_uses_loopback_argv_and_stop_kills_it(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = Path(tmp.name)
+        (folder / "llama-server").write_text("x", encoding="utf-8")
+        (folder / "SmolLM2-360M-Instruct-Q4_K_M.gguf").write_bytes(b"gguf")
+        os.environ["BATTLEBUDDY_LLM_DIR"] = str(folder)
+        fake = MagicMock()
+        fake.poll.return_value = None
+        with patch("battlebuddy.databank.reason.any_reasoner_listening", return_value=False):
+            with patch("battlebuddy.databank.reason.subprocess.Popen", return_value=fake) as popen:
+                self.assertTrue(start_bundled_server())
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
+        self.assertEqual(argv[argv.index("--port") + 1], str(BUNDLED_PORT))
+        self.assertNotIn("0.0.0.0", argv)
+        stop_bundled_server()
+        fake.terminate.assert_called()
 
 
 def _make_handler(

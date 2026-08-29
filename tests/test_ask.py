@@ -324,6 +324,9 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("self._show_ask", source)
         self.assertIn("ask_visible_message", source)
         self.assertIn("present_ask", source)
+        self.assertIn("start_bundled_server", source)
+        self.assertIn("stop_bundled_server", source)
+        self.assertIn("_warm_bundled_llm", source)
         self.assertIn("shown_after_hunt_failure", source)
         self.assertIn("hunt_or_keep_local", source)
         self.assertIn("sole_saved_game", source)
@@ -339,6 +342,8 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("_set_ask_out", show)
         self.assertNotIn("databank_status", show)
         self.assertNotIn("self.status", show)
+        close_src = source.split("def _on_close")[1]
+        self.assertIn("stop_bundled_server", close_src)
         apply_src = source.split("def _apply_game")[1].split("def ")[0]
         self.assertNotIn('_set_ask_out("")', apply_src)
         self.assertIn("switched_databank_line", apply_src)

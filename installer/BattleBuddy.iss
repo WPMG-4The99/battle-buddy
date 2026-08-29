@@ -37,6 +37,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
 
 [Files]
+; llm\ (llama-server + GGUF) rides along if build-windows.ps1 dropped it. No login.
 Source: "..\dist\BattleBuddy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

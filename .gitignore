@@ -16,6 +16,9 @@ databanks/
 *.gguf
 *.bin
 models/
+# Build-time llama.cpp zip + GGUF. Never commit the binaries.
+.llm-cache/
+/llm/
 .DS_Store
 Thumbs.db
 .idea/
