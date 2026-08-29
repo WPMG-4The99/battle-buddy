@@ -7,6 +7,8 @@ import re
 
 _ICON = re.compile(r"\{\{\s*Icon\s*\|[^}]*\}\}", re.IGNORECASE)
 _HTML = re.compile(r"<[^>]+>")
+_WIKI_TICKS = re.compile(r"'{2,}")
+_LIST_STAR = re.compile(r"(?m)^\s*\*\s+")
 _WORD = re.compile(r"[a-z0-9]+")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _CRAFT_WORDS = ("obtained", "produced", "backyard")
@@ -46,11 +48,13 @@ _NOT_BUILDING = {
 
 
 def strip_markup(text: str) -> str:
-    """Drop {{Icon|...}}, HTML tags, and &#039;-style entities."""
+    """Drop {{Icon|...}}, HTML tags, wiki bold/italic, list stars, and entities."""
     raw = text or ""
     raw = _ICON.sub(" ", raw)
     raw = _HTML.sub(" ", raw)
     raw = html.unescape(raw)
+    raw = _WIKI_TICKS.sub(" ", raw)
+    raw = _LIST_STAR.sub(" ", raw)
     return " ".join(raw.split())
 
 

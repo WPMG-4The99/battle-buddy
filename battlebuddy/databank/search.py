@@ -45,7 +45,10 @@ _WEAK = {
     "need",
     "please",
     "production",
+    "set",
+    "setup",
     "start",
+    "up",
     "want",
 }
 _MAX_HITS = 3
@@ -75,14 +78,12 @@ class AskResult:
         if not self.hits:
             return self.message
         nouns = content_terms(query_terms(self.question))
-        blocks: list[str] = []
         for hit in self.hits:
             snippet = strip_markup(hit.snippet)
             recipe = recipe_sentence(snippet, nouns)
-            if recipe and not blocks:
-                blocks.append(f"{recipe}\n{hit.title}")
-            else:
-                blocks.append(f"{hit.title}\n{snippet}")
+            if recipe:
+                return f"{recipe}\n{hit.title}"
+        blocks = [f"{hit.title}\n{strip_markup(hit.snippet)}" for hit in self.hits]
         return "\n\n".join(blocks)
 
 
