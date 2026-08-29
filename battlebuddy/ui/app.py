@@ -82,6 +82,36 @@ def ask_visible_message(result: object) -> str:
     return text.strip()
 
 
+_EMPTY_FOLDER = "No pages on disk for this game. ADD / FETCH a link first."
+
+
+def shown_after_hunt_failure(local: object | None) -> str:
+    """Keep the local pane. A crash is not a wiki miss."""
+    if local is None:
+        return _EMPTY_FOLDER
+    return ask_visible_message(local)
+
+
+def hunt_or_keep_local(
+    store: object,
+    game: str | None,
+    question: str,
+    local: object | None,
+) -> tuple[object | None, str]:
+    """Hunt and present. On any raise, keep the local AskResult."""
+    result: object | None = local
+    try:
+        result = ask_or_hunt(store, game, question)
+    except Exception:
+        result = local
+    try:
+        if result is None:
+            return result, shown_after_hunt_failure(None)
+        return result, present_ask(result, question, store, game)
+    except Exception:
+        return result, shown_after_hunt_failure(result)
+
+
 def switched_databank_line(game: str | None) -> str:
     return f"Switched databank to {game_slug(game)}."
 
@@ -127,7 +157,7 @@ class BattleBuddyApp:
         self.root.title("Battle Buddy")
         self.root.configure(bg=_BG)
         self.databank = DatabankStore()
-        self._game_name: str | None = None
+        self._game_name: str | None = self.databank.sole_saved_game()
         self._fetching = False
         self._asking = False
 
@@ -596,19 +626,19 @@ class BattleBuddyApp:
         if result.ok:
             self._clear_ask_box()
         game = self._game_name
-        threading.Thread(target=self._ask_hunt_worker, args=(question, game), daemon=True).start()
+        threading.Thread(
+            target=self._ask_hunt_worker,
+            args=(question, game, result),
+            daemon=True,
+        ).start()
 
-    def _ask_hunt_worker(self, question: str, game: str | None) -> None:
-        try:
-            result = ask_or_hunt(self.databank, game, question)
-            shown = (
-                present_ask(result, question, self.databank, game)
-                if result is not None
-                else None
-            )
-        except Exception:
-            result = None
-            shown = None
+    def _ask_hunt_worker(
+        self,
+        question: str,
+        game: str | None,
+        local: object,
+    ) -> None:
+        result, shown = hunt_or_keep_local(self.databank, game, question, local)
         try:
             self.root.after(0, lambda r=result, s=shown: self._ask_hunt_done(r, s))
         except Exception:
@@ -620,11 +650,12 @@ class BattleBuddyApp:
             self.ask_btn.config(state="normal")
         except Exception:
             pass
-        if result is None:
-            self._show_ask("No match on the wiki. Nothing invented.")
-            self._refresh_sources()
-            return
-        self._show_ask(shown if shown is not None else ask_visible_message(result))
+        if shown:
+            self._show_ask(shown)
+        elif result is not None:
+            self._show_ask(ask_visible_message(result))
+        else:
+            self._show_ask(shown_after_hunt_failure(None))
         self._refresh_sources()
 
     def _clear_ask_box(self) -> None:

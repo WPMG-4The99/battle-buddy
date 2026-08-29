@@ -77,6 +77,39 @@ class DatabankStore:
     def sources_path(self, game: str | None) -> Path:
         return self.folder(game) / "sources.json"
 
+    def list_saved_folders(self) -> list[Path]:
+        """Databank folders that already have saved page text."""
+        root = databanks_root(self.home)
+        if not root.is_dir():
+            return []
+        return sorted(
+            path for path in root.iterdir() if path.is_dir() and any(path.glob("*.txt"))
+        )
+
+    def game_name_for_folder(self, folder: Path) -> str | None:
+        """Display name from sources.json, or the slug. general stays unset."""
+        path = folder / "sources.json"
+        if path.is_file():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                raw = None
+            if isinstance(raw, dict):
+                name = str(raw.get("game") or "").strip()
+                if name:
+                    return name
+        slug = folder.name.strip().lower()
+        if not slug or slug == "general":
+            return None
+        return " ".join(part.capitalize() for part in slug.split("-"))
+
+    def sole_saved_game(self) -> str | None:
+        """If exactly one folder has pages, that game name. Else None."""
+        folders = self.list_saved_folders()
+        if len(folders) != 1:
+            return None
+        return self.game_name_for_folder(folders[0])
+
     def list_sources(self, game: str | None) -> list[Source]:
         path = self.sources_path(game)
         if not path.is_file():

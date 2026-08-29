@@ -113,8 +113,48 @@ def content_terms(terms: list[str]) -> list[str]:
 
 
 def ask_pages(store: DatabankStore, game: str | None, question: str) -> AskResult:
-    """Search the same folder paste/fetch uses. Local files only."""
-    return search_folder(store.folder(game), question)
+    """Search the game folder, then any other on-disk folder that matches."""
+    result = search_folder(store.folder(game), question)
+    if not result.ok or result.hits:
+        return result
+    other = _ask_other_folders(store, game, question)
+    return other if other is not None else result
+
+
+def _ask_other_folders(
+    store: DatabankStore,
+    game: str | None,
+    question: str,
+) -> AskResult | None:
+    """When the chosen folder misses, use another databank that has the pages."""
+    skip = store.folder(game).resolve()
+    folders = [path for path in store.list_saved_folders() if path.resolve() != skip]
+    if not folders:
+        return None
+    if len(folders) == 1:
+        found = search_folder(folders[0], question)
+        return found if found.ok else None
+    matched: list[AskResult] = []
+    for folder in folders:
+        found = search_folder(folder, question)
+        if found.hits:
+            matched.append(found)
+    if not matched:
+        return None
+    if len(matched) == 1:
+        return matched[0]
+    hits: list[Hit] = []
+    for item in matched:
+        hits.extend(item.hits)
+    hits.sort(key=lambda item: item.score, reverse=True)
+    kept = tuple(hits[:_MAX_HITS])
+    return AskResult(
+        ok=True,
+        empty=False,
+        message="Match on disk.",
+        hits=kept,
+        question=question,
+    )
 
 
 def search_folder(folder: Path, question: str) -> AskResult:

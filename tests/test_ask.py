@@ -73,10 +73,11 @@ class SearchFolderTest(unittest.TestCase):
             "Hunting",
             "Hunters bring meat to the camp.",
         )
-        general = ask_pages(store, None, "where is hunting meat")
         manor = ask_pages(store, "Manor Lords", "where is hunting meat")
-        self.assertTrue(general.empty or "meat" not in general.output().lower())
         self.assertIn("meat", manor.output().lower())
+        self.assertNotIn("oats", manor.output().lower())
+        unset = ask_pages(store, None, "where is hunting meat")
+        self.assertIn("meat", unset.output().lower())
 
     def test_blank_question_does_not_search(self) -> None:
         tmp = TemporaryDirectory()
@@ -200,6 +201,110 @@ class SearchFolderTest(unittest.TestCase):
         self.assertNotIn("hinterlanders", low)
         self.assertLess(len(first.split()), 30)
 
+    def test_burgage_spear_with_game_unset_uses_manor_lords_folder(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        dump = (
+            "Tier 2 Backyards Backyard extension Cost Produces Perks/Affinities "
+            "Requires Maintenance Bakery 6 Planks 10 RW 1 Wheat Flour into 4 Wheat Bread "
+            "or 1 Rye Flour into 2 Rye Bread -0.2 Weiden Hinterlanders Blacksmith 8 Planks "
+            "25 RW 1 Iron Slab and 1 Plank into 2 Spears or 2 Iron Slabs into 1 Sidearm "
+            "or 1 Iron Slab and 1 Plank into 1 Polearms or 1 Iron Slab into 1 Tool or "
+            "1 Iron Slab into 1 Iron Part +0.2 Smiths of Passau -0.2 Weiden Hinterlanders "
+            "Brewery 6 Planks 10 RW 1 Malt into 2 Ale ..."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            dump,
+        )
+        self.assertEqual(store.list_sources(None), [])
+        result = ask_pages(store, None, "How do I start a spear production?")
+        out = result.output()
+        first = out.splitlines()[0]
+        low = first.lower()
+        self.assertTrue(result.hits)
+        self.assertFalse(result.empty)
+        self.assertIn("blacksmith", low)
+        self.assertIn("iron", low)
+        self.assertIn("plank", low)
+        self.assertIn("spear", low)
+        self.assertNotIn("No match on the wiki", out)
+        self.assertNotIn("ADD / FETCH", out)
+        self.assertNotIn("bakery", low)
+        hunted = ask_or_hunt(store, None, "How do I start a spear production?")
+        hunt_first = hunted.output().splitlines()[0]
+        self.assertIn("blacksmith", hunt_first.lower())
+        self.assertIn("spear", hunt_first.lower())
+
+    def test_spear_homepage_without_recipe_still_does_not_invent(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki",
+            "Manor Lords Wiki",
+            "Welcome. Start production with ale. Baron Hildebolt holds the manor.",
+        )
+        result = ask_pages(store, None, "How do I start a spear production?")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.hits, ())
+        self.assertIn("Nothing invented", result.output())
+        self.assertNotIn("No match on the wiki", result.output())
+        self.assertNotIn("ale", result.output().lower())
+        self.assertNotIn("hildebolt", result.output().lower())
+
+
+class HuntFailureTest(unittest.TestCase):
+    def test_exception_keeps_local_hit_not_fake_wiki_miss(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        dump = (
+            "Blacksmith 8 Planks 25 RW 1 Iron Slab and 1 Plank into 2 Spears "
+            "or 2 Iron Slabs into 1 Sidearm"
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            dump,
+        )
+        local = ask_pages(store, None, "How do I start a spear production?")
+        self.assertTrue(local.hits)
+        shown = ui_app.shown_after_hunt_failure(local)
+        self.assertIn("blacksmith", shown.lower())
+        self.assertIn("spear", shown.lower())
+        self.assertNotIn("No match on the wiki", shown)
+        with patch("battlebuddy.ui.app.ask_or_hunt", side_effect=RuntimeError("net")):
+            result, pane = ui_app.hunt_or_keep_local(
+                store,
+                None,
+                "How do I start a spear production?",
+                local,
+            )
+        self.assertIs(result, local)
+        self.assertIn("blacksmith", pane.lower())
+        self.assertIn("spear", pane.lower())
+        self.assertNotIn("No match on the wiki", pane)
+        with patch("battlebuddy.ui.app.present_ask", side_effect=ValueError("regex")):
+            kept, pane2 = ui_app.hunt_or_keep_local(
+                store,
+                None,
+                "How do I start a spear production?",
+                local,
+            )
+        self.assertIsNotNone(kept)
+        self.assertTrue(getattr(kept, "hits", ()))
+        self.assertNotIn("No match on the wiki", pane2)
+        self.assertIn("spear", pane2.lower())
+        empty = ui_app.shown_after_hunt_failure(None)
+        self.assertIn("ADD / FETCH", empty)
+        self.assertNotIn("No match on the wiki", empty)
+
 
 class AskUiSourceTest(unittest.TestCase):
     def test_ask_box_and_local_search_hooks(self) -> None:
@@ -219,7 +324,12 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("self._show_ask", source)
         self.assertIn("ask_visible_message", source)
         self.assertIn("present_ask", source)
+        self.assertIn("shown_after_hunt_failure", source)
+        self.assertIn("hunt_or_keep_local", source)
+        self.assertIn("sole_saved_game", source)
         self.assertIn("pack_propagate(False)", source)
+        hunt_done = source.split("def _ask_hunt_done")[1].split("def ")[0]
+        self.assertNotIn("No match on the wiki. Nothing invented.", hunt_done)
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="ADD / FETCH"', source)
         self.assertIn("self._tick_clocks()", source)
@@ -394,6 +504,31 @@ class AskUiTest(unittest.TestCase):
             app._ask()
             hit = app.ask_out.get("1.0", "end-1c").lower()
             self.assertIn("spear", hit)
+        finally:
+            app._on_close()
+
+    def test_burgage_ask_before_detect_uses_sole_folder(self) -> None:
+        store = DatabankStore(self.home)
+        dump = (
+            "Blacksmith 8 Planks 25 RW 1 Iron Slab and 1 Plank into 2 Spears "
+            "or 2 Iron Slabs into 1 Sidearm"
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            dump,
+        )
+        app = self._app()
+        try:
+            self.assertEqual(app._game_name, "Manor Lords")
+            app.ask_entry.insert(0, "How do I start a spear production?")
+            app._ask()
+            out = app.ask_out.get("1.0", "end-1c")
+            first = out.splitlines()[0].lower() if out else ""
+            self.assertIn("blacksmith", first)
+            self.assertIn("spear", first)
+            self.assertNotIn("No match on the wiki", out)
         finally:
             app._on_close()
 

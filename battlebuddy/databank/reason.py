@@ -55,17 +55,26 @@ def top_page_text(
     if not result.hits:
         return ""
     title = result.hits[0].title.strip()
-    for path in page_files(store.folder(game)):
-        try:
-            body = path.read_text(encoding="utf-8")
-        except OSError:
+    folders = [store.folder(game)]
+    seen = {folders[0].resolve()}
+    for extra in store.list_saved_folders():
+        key = extra.resolve()
+        if key in seen:
             continue
-        first = (body.splitlines()[0].strip() if body else "") or "untitled"
-        if first != title:
-            continue
-        parts = body.split("\n", 2)
-        text = parts[2] if len(parts) > 2 else body
-        return strip_markup(text)[:cap]
+        seen.add(key)
+        folders.append(extra)
+    for folder in folders:
+        for path in page_files(folder):
+            try:
+                body = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            first = (body.splitlines()[0].strip() if body else "") or "untitled"
+            if first != title:
+                continue
+            parts = body.split("\n", 2)
+            text = parts[2] if len(parts) > 2 else body
+            return strip_markup(text)[:cap]
     return strip_markup(result.hits[0].snippet)[:cap]
 
 
