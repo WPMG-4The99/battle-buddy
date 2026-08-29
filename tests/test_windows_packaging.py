@@ -20,7 +20,7 @@ class WindowsPackagingTest(unittest.TestCase):
         self.assertTrue(entry.is_file())
         text = entry.read_text(encoding="utf-8")
         self.assertIn("python -m battlebuddy ui", text)
-        self.assertIs(main.__module__, "battlebuddy.win_entry")
+        self.assertEqual(main.__module__, "battlebuddy.win_entry")
         self.assertEqual(run_ui.__module__, "battlebuddy.ui.app")
 
     def test_spec_is_windowed_onedir_named_battlebuddy(self) -> None:
