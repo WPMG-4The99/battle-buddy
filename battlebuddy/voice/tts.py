@@ -6,9 +6,17 @@ import json
 import platform
 import shutil
 import subprocess
+import sys
 import threading
 
 _SYSTEM = platform.system()
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def hidden_console_run_kwargs() -> dict[str, object]:
+    """Hide powershell.exe. CREATE_NO_WINDOW, or 0x08000000 if the attr is missing."""
+    flags = int(getattr(subprocess, "CREATE_NO_WINDOW", _CREATE_NO_WINDOW))
+    return {"creationflags": flags}
 
 
 def tts_available() -> bool:
@@ -56,6 +64,13 @@ def _speak_windows(phrase: str) -> bool:
     powershell = shutil.which("powershell") or shutil.which("powershell.exe")
     if powershell is None:
         return False
+    kwargs: dict[str, object] = {
+        "timeout": 30,
+        "check": False,
+        "capture_output": True,
+    }
+    if sys.platform == "win32":
+        kwargs.update(hidden_console_run_kwargs())
     subprocess.run(
         [
             powershell,
@@ -65,8 +80,6 @@ def _speak_windows(phrase: str) -> bool:
             "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             f"$s.Speak({quoted})",
         ],
-        timeout=30,
-        check=False,
-        capture_output=True,
+        **kwargs,
     )
     return True
