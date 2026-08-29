@@ -112,6 +112,7 @@ class BattleBuddyApp:
         self.root.geometry("760x980")
 
         self._build()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(_POLL_MS, self._tick)
 
     def run(self) -> None:
@@ -158,7 +159,6 @@ class BattleBuddyApp:
             highlightcolor=_FLAME,
         )
         self.entry.pack(fill="x", ipady=18, padx=28, pady=8)
-        self.entry.insert(0, _EXAMPLE)
         self.entry.bind("<Return>", lambda _event: self._lock())
         self.entry.focus_set()
 
@@ -323,7 +323,6 @@ class BattleBuddyApp:
             highlightcolor=_FLAME,
         )
         self.url_entry.pack(fill="x", ipady=14)
-        self.url_entry.insert(0, "https://")
         self.url_entry.bind("<Return>", lambda _event: self._add_fetch())
 
         self.fetch_btn = tk.Button(
@@ -460,9 +459,7 @@ class BattleBuddyApp:
         result = run_line(self.engine, line)
         if not result.ok:
             if result.kind == "unknown":
-                self.status.config(
-                    text="Could not parse that. Try: remind me in 1 minute to check food stores"
-                )
+                self.status.config(text=f"Could not parse that. Try: {_EXAMPLE}")
                 return
             self.status.config(text=result.message)
             if result.speak:
@@ -728,6 +725,23 @@ class BattleBuddyApp:
         except Exception:
             pass
         self.status.config(text="Fire seen. Lock another when you need it.")
+
+    def _clear_drafts(self) -> None:
+        """Wipe typed drafts only. Reminders and databank stay on disk."""
+        for widget in (getattr(self, "entry", None), getattr(self, "url_entry", None)):
+            if widget is None:
+                continue
+            try:
+                widget.delete(0, "end")
+            except Exception:
+                continue
+
+    def _on_close(self) -> None:
+        self._clear_drafts()
+        try:
+            self.root.destroy()
+        except Exception:
+            return
 
 
 def _window_is_hidden(root: object) -> bool:
