@@ -292,6 +292,13 @@ class SearchFolderTest(unittest.TestCase):
         self.assertEqual(terms, ["set", "up", "spear", "production"])
         self.assertEqual(content_terms(terms), ["spear"])
 
+    def test_tax_people_is_weak_taxing_is_not(self) -> None:
+        terms = query_terms("how do I start taxing my people?")
+        self.assertEqual(terms, ["start", "taxing", "people"])
+        self.assertEqual(content_terms(terms), ["taxing"])
+        self.assertNotIn("people", content_terms(terms))
+        self.assertEqual(content_terms(query_terms("tax the people")), ["tax"])
+
     def test_strip_markup_drops_wiki_bold_italic_and_list_stars(self) -> None:
         dirty = "* ''' Spears ''': obtained from Planks and Iron Slabs"
         cleaned = strip_markup(dirty)
@@ -927,6 +934,141 @@ class AskUiTest(unittest.TestCase):
             self.assertNotEqual(reminder, hold)
         finally:
             app._on_close()
+
+
+_TAX_Q = "how do I start taxing my people?"
+_BUILDINGS_TAX = (
+    "Manor costs 5 Timber, 20 Planks and 25 Stone. Once constructed it grants 250 "
+    "Influence, rises the Administration level by 1 and enables taxing people. "
+    "It requires Fuel resources. Only one Manor can be constructed per region. "
+    "Provides acces to your retinue and various forms of taxation. "
+    "Tax offices cost 4 Timber. At present, this building is purely cosmetic."
+)
+_FAQ_TAX = (
+    "It is generated via Tax (from a regions manor) as well as clearing out Bandit Camps. "
+    "For Tax, you need to have regional wealth. No Regional Wealth = no tax income to your Treasury. "
+    "Food types: berries, meat, bread."
+)
+_FAMILY = (
+    "A family occupies a burgage plot. People work at assigned workplaces. "
+    "Each family has two workers."
+)
+_FISHERMAN = (
+    "Fisherman's hut. Catch fish in the nearby river. Assign a family to work the hut."
+)
+_DEVELOPMENT = (
+    "Annual Royal Tax comes from here. Land tax approval malus. "
+    "Treasury grows from royal tax."
+)
+_BYGGNADER = "Byggnader. Buildings TOC. Family. People. Se även fiskarstuga."
+
+
+class TaxHowToAskTest(unittest.TestCase):
+    def _store(self, *, manor: bool = True) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        buildings = _BUILDINGS_TAX if manor else (
+            "Provides acces to your retinue and various forms of taxation. "
+            "Tax offices cost 4 Timber. At present, this building is purely cosmetic."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Buildings",
+            "Buildings - Manor Lords Official Wiki",
+            buildings,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/FAQ",
+            "FAQ - Manor Lords Official Wiki",
+            _FAQ_TAX,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Family",
+            "Family - Manor Lords Official Wiki",
+            _FAMILY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Fishermans_hut",
+            "Fisherman's hut - Manor Lords Official Wiki",
+            _FISHERMAN,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Development",
+            "Development - Manor Lords Official Wiki",
+            _DEVELOPMENT,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/0.8.050",
+            "0.8.050 - Main - Manor Lords Official Wiki",
+            "Changed tax tooltip. Start of the production notes for this hotfix.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Byggnader",
+            "Byggnader - Manor Lords Official Wiki",
+            _BYGGNADER,
+        )
+        return store
+
+    def _assert_not_scraps(self, text: str) -> None:
+        low = text.lower()
+        self.assertNotIn("fisherman", low)
+        self.assertNotIn("workplaces", low)
+        self.assertNotIn("food types", low)
+        self.assertNotIn("berries", low)
+        self.assertNotIn("annual royal tax comes from here", low)
+        self.assertNotIn("byggnader", low)
+        self.assertNotIn("fiskarstuga", low)
+        self.assertLessEqual(
+            len([part for part in text.replace("?", ".").split(".") if part.strip()]),
+            2,
+        )
+
+    def test_tax_question_compiles_manor_and_wealth(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "Manor Lords", _TAX_Q)
+        shown = present_ask(result, _TAX_Q, store, "Manor Lords", ports=(1,))
+        low = shown.lower()
+        self.assertIn("manor", low)
+        self.assertIn("enables taxing", low)
+        self.assertIn("5", shown)
+        self.assertIn("timber", low)
+        self.assertIn("20", shown)
+        self.assertIn("plank", low)
+        self.assertIn("25", shown)
+        self.assertIn("stone", low)
+        self.assertTrue("regional wealth" in low or "treasury" in low)
+        self._assert_not_scraps(shown)
+        self.assertEqual(shown, result.output())
+
+    def test_tax_without_manor_paragraph_is_a_miss(self) -> None:
+        store = self._store(manor=False)
+        store.save_page(
+            "Manor Lords",
+            "http://127.0.0.1:9/wiki/",
+            "Manor Lords Wiki",
+            "Welcome.",
+        )
+        result = ask_or_hunt(store, "Manor Lords", _TAX_Q)
+        shown = present_ask(result, _TAX_Q, store, "Manor Lords", ports=(1,))
+        low = shown.lower()
+        self.assertTrue(
+            "can't find that" in low
+            or "nothing invented" in low
+            or "restate" in low
+        )
+        self.assertNotIn("fisherman", low)
+        self.assertNotIn("workplaces", low)
+        self.assertNotIn("food types", low)
+        self.assertNotIn("family occupies", low)
+        self.assertNotIn("annual royal tax comes from here", low)
+        self.assertNotIn("byggnader", low)
 
 
 if __name__ == "__main__":
