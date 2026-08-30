@@ -10,13 +10,16 @@ from battlebuddy.databank.clean import (
     compile_claim_line,
     compile_howto_line,
     compile_livestock_line,
+    compile_pack_line,
     expand_search_terms,
     livestock_page_signal,
     is_claim_question,
     is_howto_question,
     is_livestock_question,
+    is_pack_question,
     is_patch_title,
     is_start_question,
+    pack_page_signal,
     page_require_line,
     recipe_sentence,
     start_path_sentence,
@@ -57,6 +60,7 @@ _STOP = {
 }
 _WEAK = {
     "another",
+    "between",
     "folks",
     "get",
     "into",
@@ -71,6 +75,8 @@ _WEAK = {
     "set",
     "setup",
     "start",
+    "town",
+    "towns",
     "up",
     "want",
 }
@@ -187,6 +193,13 @@ def compile_ask_line(question: str, texts: list[str]) -> str | None:
         # How-to livestock with no Animal Pen compile is a miss, not burgage junk.
         if is_howto_question(question):
             return None
+    if is_pack_question(question):
+        pack = compile_pack_line(texts)
+        if pack:
+            return pack
+        # How-to pack routes with no Pack Station compile is a miss, not EA junk.
+        if is_howto_question(question):
+            return None
     if is_howto_question(question):
         return compile_howto_line(texts, nouns)
     return None
@@ -243,6 +256,47 @@ def livestock_compile_texts(
             body = parts[2] if len(parts) > 2 else raw
             cleaned = strip_markup(body)
             if not livestock_page_signal(cleaned):
+                continue
+            blob = f"{first}.\n{cleaned}"
+            key = strip_markup(blob).lower()[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            texts.append(blob)
+    return texts
+
+
+def pack_compile_texts(
+    store: DatabankStore | None,
+    game: str | None,
+    result: AskResult,
+) -> list[str]:
+    """Hit pages plus any saved Pack Station page. Extract only."""
+    texts = page_texts_for_hits(store, game, result, cap=None)
+    if store is None:
+        return texts
+    seen = {strip_markup(item).lower()[:80] for item in texts}
+    folders = [store.folder(game)]
+    known = {folders[0].resolve()}
+    for extra in store.list_saved_folders():
+        key = extra.resolve()
+        if key in known:
+            continue
+        known.add(key)
+        folders.append(extra)
+    for folder in folders:
+        for path in page_files(folder):
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            first = (raw.splitlines()[0].strip() if raw else "") or "untitled"
+            if is_patch_title(first):
+                continue
+            parts = raw.split("\n", 2)
+            body = parts[2] if len(parts) > 2 else raw
+            cleaned = strip_markup(body)
+            if not pack_page_signal(cleaned):
                 continue
             blob = f"{first}.\n{cleaned}"
             key = strip_markup(blob).lower()[:80]
@@ -411,19 +465,27 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
     path = start_path_sentence(combined, needed) if is_start_question(question) else None
     recipe = recipe_sentence(cleaned, needed)
     livestock = compile_livestock_line([combined]) if is_livestock_question(question) else None
+    pack = compile_pack_line([combined]) if is_pack_question(question) else None
     howto = None
-    if livestock is None and not is_livestock_question(question) and is_howto_question(question):
+    if (
+        livestock is None
+        and pack is None
+        and not is_livestock_question(question)
+        and not is_pack_question(question)
+        and is_howto_question(question)
+    ):
         howto = compile_howto_line([combined], needed)
     claim = compile_claim_line([combined]) if is_claim_question(question) else None
     require = (
         page_require_line(cleaned, needed)
-        if howto is None and claim is None and livestock is None
+        if howto is None and claim is None and livestock is None and pack is None
         else None
     )
     snippet = (
         path
         or recipe
         or livestock
+        or pack
         or howto
         or claim
         or require
@@ -444,8 +506,9 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
                 title,
                 path,
                 recipe,
-                livestock or howto or claim,
+                livestock or pack or howto or claim,
                 livestock_signal=is_livestock_question(question) and livestock_page_signal(cleaned),
+                pack_signal=is_pack_question(question) and pack_page_signal(cleaned),
             ),
         )
     best_score = 0
@@ -466,8 +529,9 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
             title,
             path,
             recipe,
-            livestock or howto or claim,
+            livestock or pack or howto or claim,
             livestock_signal=is_livestock_question(question) and livestock_page_signal(cleaned),
+            pack_signal=is_pack_question(question) and pack_page_signal(cleaned),
         ),
     )
 
@@ -479,6 +543,7 @@ def _adjust_score(
     recipe: str | None,
     howto: str | None = None,
     livestock_signal: bool = False,
+    pack_signal: bool = False,
 ) -> int:
     """Demote patch notes. Prefer a compiled start path, produce row, or enable line."""
     low = (title or "").lower()
@@ -491,6 +556,8 @@ def _adjust_score(
     elif howto:
         score += 4
     if livestock_signal and not howto:
+        score += 4
+    if pack_signal and not howto:
         score += 4
     if "official wiki" in low:
         score += 3

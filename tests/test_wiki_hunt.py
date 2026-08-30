@@ -122,6 +122,19 @@ class RankVariantTest(unittest.TestCase):
         self.assertNotIn("Burgage_plot", spear)
         self.assertNotIn("Livestock_trading_post", spear)
 
+    def test_pack_title_fallbacks_when_spoken_pack_words(self) -> None:
+        home = KNOWN_WIKIS["manor lords"]
+        urls = fallback_title_urls(home, ["pack", "routes"])
+        joined = " ".join(urls)
+        self.assertIn("Pack_station", joined)
+        self.assertIn("/Buildings", joined)
+        self.assertIn("/FAQ", joined)
+        mule = " ".join(fallback_title_urls(home, ["mule"]))
+        self.assertIn("Pack_station", mule)
+        self.assertIn("/FAQ", mule)
+        spear = " ".join(fallback_title_urls(home, ["spear"]))
+        self.assertNotIn("Pack_station", spear)
+
     def test_military_items_outranks_translation_and_approval(self) -> None:
         hits = [
             SearchHit("Approval", "Spear Militia unlocks with an Approval perk.", "https://w/Approval"),

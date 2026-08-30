@@ -319,6 +319,18 @@ class SearchFolderTest(unittest.TestCase):
         self.assertIn("burgage", content_terms(terms))
         self.assertNotIn("livestock", {"into", "plot", "plots"})
 
+    def test_pack_towns_between_are_weak_pack_is_not(self) -> None:
+        terms = query_terms("How do I set up pack routes between my towns?")
+        self.assertEqual(terms, ["set", "up", "pack", "routes", "between", "towns"])
+        self.assertEqual(content_terms(terms), ["pack", "routes"])
+        self.assertNotIn("between", content_terms(terms))
+        self.assertNotIn("town", content_terms(terms))
+        self.assertNotIn("towns", content_terms(terms))
+        self.assertIn("pack", content_terms(terms))
+        self.assertIn("routes", content_terms(terms))
+        mule = query_terms("How do pack stations use mules?")
+        self.assertEqual(content_terms(mule), ["pack", "stations", "use", "mules"])
+
     def test_strip_markup_drops_wiki_bold_italic_and_list_stars(self) -> None:
         dirty = "* ''' Spears ''': obtained from Planks and Iron Slabs"
         cleaned = strip_markup(dirty)
@@ -1492,6 +1504,169 @@ class LivestockHowToAskTest(unittest.TestCase):
         )
         self.assertNotIn("flexible plots", low)
         self.assertNotIn("allows multiple plots", low)
+
+
+_PACK_Q = "How do I set up pack routes between my towns?"
+_PACK_STATION_Q = "How do I set up a pack station?"
+_PACK_MULE_Q = "How do pack stations use mules?"
+_FAQ_PACK = (
+    "Early Access will have: City-building – Develop your region from a tiny village "
+    "to a dense town, build industries, unlock development branches, plan and upgrade "
+    "your Manor. "
+    "Mules are used by the Pack Station to move goods between players settled regions. "
+    "You will need to build a Pack Station to trade resources between two regions. "
+    "You only need one pack station for inter-region trading."
+)
+_BUILDINGS_PACK = (
+    "Pack station 1 timber Can setup a barter connection between two of your regions. "
+    "Can order mules. "
+    "Granary stores food. "
+    "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people."
+)
+_PACK_SPOKEN = (
+    "You will need to build a Pack Station to trade resources between two regions. "
+    "Mules are used by the Pack Station to move goods between players settled regions."
+)
+
+
+class PackRouteHowToAskTest(unittest.TestCase):
+    def _store(self, *, faq_pack: bool = True, buildings_pack: bool = True) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        faq = _FAQ_PACK if faq_pack else (
+            "Early Access will have: City-building – Develop your region from a tiny "
+            "village to a dense town, build industries, unlock development branches, "
+            "plan and upgrade your Manor. "
+            "Food types: berries, meat, bread."
+        )
+        buildings = _BUILDINGS_PACK if buildings_pack else (
+            "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people. "
+            "Granary stores food."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/FAQ",
+            "FAQ - Manor Lords Official Wiki",
+            faq,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Buildings",
+            "Buildings - Manor Lords Official Wiki",
+            buildings,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            _BURGAGE_LIVESTOCK,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Family",
+            "Family - Manor Lords Official Wiki",
+            _FAMILY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Fishermans_hut",
+            "Fisherman's hut - Manor Lords Official Wiki",
+            _FISHERMAN,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Development",
+            "Development - Manor Lords Official Wiki",
+            _DEVELOPMENT,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/0.8.050",
+            "0.8.050 - Main - Manor Lords Official Wiki",
+            "Changed tax tooltip. Start of the production notes for this hotfix.",
+        )
+        return store
+
+    def _assert_pack_answer(self, text: str, *, timber: bool = False) -> None:
+        low = text.lower()
+        self.assertIn("pack station", low)
+        self.assertTrue(
+            "trade" in low or "barter" in low or "move goods" in low
+        )
+        self.assertTrue("region" in low)
+        self.assertIn("mule", low)
+        if timber:
+            self.assertIn("1 timber", low)
+        self.assertNotIn("early access", low)
+        self.assertNotIn("dense town", low)
+        self.assertNotIn("city-building", low)
+        self.assertNotIn("city building", low)
+        self.assertNotIn("flexible plots", low)
+        self.assertNotIn("animal pen", low)
+        self.assertNotIn("blacksmith", low)
+        self.assertNotIn("annual royal tax", low)
+        self.assertNotIn("fisherman", low)
+        self.assertLessEqual(
+            len([part for part in text.replace("?", ".").split(".") if part.strip()]),
+            2,
+        )
+
+    def _assert_compiles(self, store: DatabankStore, question: str) -> None:
+        result = ask_or_hunt(store, "Manor Lords", question)
+        shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+        self._assert_pack_answer(shown)
+        self.assertNotIn("Can't find that", shown)
+        self.assertNotIn("Nothing invented", shown)
+
+    def test_pack_routes_compiles_station_and_mules(self) -> None:
+        store = self._store()
+        self._assert_compiles(store, _PACK_Q)
+        self._assert_compiles(store, _PACK_Q.rstrip("?"))
+
+    def test_pack_routes_spoken_line_is_faq_build_then_mules(self) -> None:
+        store = self._store()
+        shown = present_ask(
+            ask_or_hunt(store, "Manor Lords", _PACK_Q),
+            _PACK_Q,
+            store,
+            "Manor Lords",
+            ports=(1,),
+        )
+        self.assertIn(_PACK_SPOKEN, shown)
+
+    def test_tighter_pack_station_and_mule_questions_still_compile(self) -> None:
+        store = self._store()
+        self._assert_compiles(store, _PACK_STATION_Q)
+        self._assert_compiles(store, _PACK_STATION_Q.rstrip("?"))
+        self._assert_compiles(store, _PACK_MULE_Q)
+        self._assert_compiles(store, _PACK_MULE_Q.rstrip("?"))
+
+    def test_without_pack_station_sentences_is_a_miss_not_early_access(self) -> None:
+        store = self._store(faq_pack=False, buildings_pack=False)
+        store.save_page(
+            "Manor Lords",
+            "http://127.0.0.1:9/wiki/",
+            "Manor Lords Wiki",
+            "Welcome.",
+        )
+        for question in (_PACK_Q, _PACK_Q.rstrip("?")):
+            result = ask_or_hunt(store, "Manor Lords", question)
+            shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+            low = shown.lower()
+            self.assertTrue(
+                "can't find that" in low
+                or "nothing invented" in low
+                or "restate" in low
+            )
+            self.assertNotIn("early access", low)
+            self.assertNotIn("dense town", low)
+            self.assertNotIn("city-building", low)
+            self.assertNotIn("flexible plots", low)
+            self.assertNotIn("animal pen", low)
+            self.assertNotIn("blacksmith", low)
+            self.assertNotIn("annual royal tax", low)
+            self.assertNotIn("fisherman", low)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,28 @@ _CLAIM_SCRAPS = (
 _LIVESTOCK_NOUNS = frozenset(
     {"animal", "animals", "goat", "goats", "livestock", "pig", "pigs", "sheep"}
 )
+_PACK_NOUNS = frozenset({"mule", "mules", "pack"})
+_PACK_FOCUS = frozenset({"mule", "mules", "pack", "station", "stations"})
+_PACK_ALIASES = ("pack", "mule", "station")
+_PACK_STATION = re.compile(r"\bpack\s+stations?\b", re.IGNORECASE)
+_MULE = re.compile(r"\bmules?\b", re.IGNORECASE)
+_PACK_SCRAPS = (
+    "annual royal tax",
+    "animal pen",
+    "blacksmith",
+    "city-building",
+    "city building",
+    "dense town",
+    "early access",
+    "fisherman",
+    "flexible plots",
+    "allows multiple plots",
+)
+_ALREADY_PACK = re.compile(
+    r"(You will need to build a Pack Station[^.]+\."
+    r"(?: Mules are used by the Pack Station[^.]+\.)?)",
+    re.IGNORECASE,
+)
 _ANIMAL_PEN = re.compile(r"\banimal\s+pen\b", re.IGNORECASE)
 _LIVESTOCK_POST = re.compile(
     r"\blivestock\s+trad(?:ing\s+post|er)\b",
@@ -193,6 +215,12 @@ def is_livestock_question(question: str) -> bool:
     return bool(words & _LIVESTOCK_NOUNS)
 
 
+def is_pack_question(question: str) -> bool:
+    """pack / mule. Spoken 'pack routes' still needs the station page."""
+    words = set(_WORD.findall((question or "").lower()))
+    return bool(words & _PACK_NOUNS)
+
+
 def claim_search_terms(question: str) -> list[str]:
     """Wiki nouns for spoken kill/defeat a ruler. Pages say claim/eliminate."""
     if not is_claim_question(question):
@@ -200,9 +228,16 @@ def claim_search_terms(question: str) -> list[str]:
     return list(_CLAIM_ALIASES)
 
 
+def pack_search_terms(question: str) -> list[str]:
+    """Wiki nouns for spoken pack routes. Pages say pack station / mule."""
+    if not is_pack_question(question):
+        return []
+    return list(_PACK_ALIASES)
+
+
 def expand_search_terms(question: str, terms: list[str]) -> list[str]:
-    """Add claim/eliminate/influence/baron when the spoken words miss the wiki."""
-    extras = claim_search_terms(question)
+    """Add claim/pack wiki nouns when the spoken words miss the page."""
+    extras = claim_search_terms(question) + pack_search_terms(question)
     if not extras:
         return list(terms)
     seen = {item.lower() for item in terms}
@@ -343,6 +378,43 @@ def compile_claim_line(texts: list[str]) -> str | None:
             return line
     if _sentence_count(cost) <= 2 and _howto_short(cost):
         return cost
+    return None
+
+
+def compile_pack_line(texts: list[str]) -> str | None:
+    """FAQ pack-station build + mules. Extract, do not invent."""
+    blob = " ".join(strip_markup(text) for text in texts if text)
+    if not blob:
+        return None
+    already = _ALREADY_PACK.search(blob)
+    if already and _howto_short(already.group(1)):
+        found = already.group(1).strip()
+        # FAQ lists mules before the build line. Do not stop on build-only.
+        if "mule" in found.lower() or not _MULE.search(blob):
+            return found
+    builds: list[str] = []
+    mules: list[str] = []
+    for text in texts:
+        cleaned = strip_markup(text)
+        if not cleaned:
+            continue
+        for sent in _sentences(cleaned):
+            if _is_pack_scrap(sent):
+                continue
+            if _is_pack_build(sent):
+                builds.append(sent.strip())
+            elif _is_pack_mule(sent):
+                mules.append(sent.strip())
+    first = _pick_pack_build(builds)
+    if first is None:
+        return None
+    second = _pick_pack_mule(mules)
+    if second and second.lower() != first.lower():
+        line = f"{first} {second}"
+        if _sentence_count(line) <= 2 and _howto_short(line):
+            return line
+    if _sentence_count(first) <= 2 and _howto_short(first):
+        return first
     return None
 
 
@@ -582,8 +654,11 @@ def _has_nouns(text: str, nouns: list[str]) -> bool:
 
 
 def _enable_action_nouns(nouns: list[str]) -> list[str]:
-    """Livestock questions need the animal noun, not just burgage/plots."""
+    """Livestock needs the animal. Pack routes need pack/mule/station, not town."""
     focus = [item for item in nouns if item in _LIVESTOCK_NOUNS]
+    if focus:
+        return focus
+    focus = [item for item in nouns if item in _PACK_FOCUS]
     return focus if focus else nouns
 
 
@@ -626,6 +701,80 @@ def livestock_page_signal(text: str) -> bool:
     if _ANIMAL_PEN.search(raw):
         return True
     return bool(_LIVESTOCK_POST.search(raw) and _IMPORT.search(raw))
+
+
+def pack_page_signal(text: str) -> bool:
+    """True when the page names a Pack Station."""
+    return bool(_PACK_STATION.search(text or ""))
+
+
+def _is_pack_scrap(sent: str) -> bool:
+    low = (sent or "").lower()
+    return any(marker in low for marker in _PACK_SCRAPS)
+
+
+def _is_pack_build(sent: str) -> bool:
+    """Build / trade / barter a Pack Station. Not Early Access 'build a town'."""
+    if _is_pack_scrap(sent):
+        return False
+    words = set(_cue_words(sent))
+    if "pack" not in words:
+        return False
+    if not words & {"station", "stations"}:
+        return False
+    return bool(words & {"barter", "build", "built", "need", "needed", "needs", "trade", "trading"})
+
+
+def _is_pack_mule(sent: str) -> bool:
+    """Mules move goods at the Pack Station. Extract the FAQ mule sentence."""
+    if _is_pack_scrap(sent):
+        return False
+    words = set(_cue_words(sent))
+    if not words & {"mule", "mules"}:
+        return False
+    if words & {"pack", "station", "stations"}:
+        return True
+    return bool(words & {"employ", "goods", "order", "transport"})
+
+
+def _pick_pack_build(candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+
+    def score(sent: str) -> int:
+        words = set(_cue_words(sent))
+        n = 0
+        if words & {"build", "built"}:
+            n += 3
+        if words & {"trade", "trading"}:
+            n += 2
+        if words & {"barter"}:
+            n += 1
+        if words & {"need", "needed", "needs"}:
+            n += 1
+        if "timber" in words and "can" in words:
+            n -= 1
+        return n
+
+    return max(candidates, key=score)
+
+
+def _pick_pack_mule(candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+
+    def score(sent: str) -> int:
+        words = set(_cue_words(sent))
+        n = 0
+        if words & {"pack", "station", "stations"}:
+            n += 3
+        if words & {"move", "transport"}:
+            n += 2
+        if "goods" in words:
+            n += 1
+        return n
+
+    return max(candidates, key=score)
 
 
 def _livestock_import_bit(text: str, animals: list[str]) -> str | None:
