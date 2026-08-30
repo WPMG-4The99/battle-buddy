@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 
 from battlebuddy.databank.reason import present_ask, start_bundled_server, stop_bundled_server
 from battlebuddy.databank.search import ask_pages
+from battlebuddy.databank.seed import (
+    needs_wiki_seed,
+    seed_hold_line,
+    seed_new_game,
+)
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
@@ -183,6 +188,7 @@ class BattleBuddyApp:
         self._game_name: str | None = self.databank.sole_saved_game()
         self._fetching = False
         self._asking = False
+        self._seed_started: set[str] = set()
 
         self.root.minsize(1000, 640)
         self.root.geometry("1200x800")
@@ -955,18 +961,65 @@ class BattleBuddyApp:
         if not is_named_game(old):
             self._game_name = name
             self._refresh_sources()
+            self._maybe_seed_wiki(name)
             return
         if game_slug(old) == game_slug(name):
             self._game_name = name
             return
         self._game_name = name
         self._refresh_sources()
+        if self._maybe_seed_wiki(name):
+            return
         notice = switched_databank_line(name)
         self._show_ask(notice)
         try:
             self.databank_status.config(text=notice)
         except Exception:
             pass
+
+    def _maybe_seed_wiki(self, game: str | None) -> bool:
+        """Empty new-game folder: hold the line and fetch wikis. Reminders stay live."""
+        if not needs_wiki_seed(self.databank, game):
+            return False
+        slug = game_slug(game)
+        if slug in self._seed_started:
+            return False
+        self._seed_started.add(slug)
+        note = f"Hold the line. Fetching wiki pages for {game}. Give it a few minutes."
+        self._show_ask(note)
+        try:
+            self.databank_status.config(text=note)
+        except Exception:
+            pass
+        self._start_wiki_seed(game)
+        return True
+
+    def _start_wiki_seed(self, game: str | None) -> None:
+        threading.Thread(target=self._seed_worker, args=(game,), daemon=True).start()
+
+    def _seed_worker(self, game: str | None) -> None:
+        try:
+            result = seed_new_game(self.databank, game)
+        except Exception:
+            result = None
+        try:
+            self.root.after(0, lambda r=result, g=game: self._seed_done(r, g))
+        except Exception:
+            return
+
+    def _seed_done(self, result: object, game: str | None) -> None:
+        if game_slug(self._game_name) != game_slug(game):
+            return
+        if result is None:
+            text = "Could not reach the wikis. Reminders still hold."
+        else:
+            text = str(getattr(result, "message", "") or "Could not reach the wikis. Reminders still hold.")
+        self._show_ask(text)
+        try:
+            self.databank_status.config(text=text)
+        except Exception:
+            pass
+        self._refresh_sources()
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""

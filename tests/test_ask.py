@@ -461,6 +461,11 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertNotIn('_set_ask_out("")', apply_src)
         self.assertIn("switched_databank_line", apply_src)
         self.assertIn("databank_status", apply_src)
+        self.assertIn("_maybe_seed_wiki", apply_src)
+        self.assertIn("seed_hold_line", source)
+        from battlebuddy.databank.seed import seed_hold_line
+
+        self.assertIn("Hold the line. Fetching wiki pages", seed_hold_line("Valheim"))
 
 
 class AskVisibleMessageTest(unittest.TestCase):
@@ -653,13 +658,14 @@ class AskUiTest(unittest.TestCase):
     def test_detect_flicker_does_not_wipe_ask(self) -> None:
         store = DatabankStore(self.home)
         store.save_page(
-            None,
+            "Manor Lords",
             "https://example.com/wiki/food",
             "Food",
             "Check the granary before winter.",
         )
         app = self._app()
         try:
+            app._start_wiki_seed = lambda _game: None  # type: ignore[method-assign]
             app.ask_entry.insert(0, "where is the granary")
             app._ask()
             hit = app.ask_out.get("1.0", "end-1c")
@@ -678,12 +684,12 @@ class AskUiTest(unittest.TestCase):
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), hit)
             self.assertEqual(str(app.status.cget("text")), reminder)
             app._apply_game("RimWorld")
-            notice = ui_app.switched_databank_line("RimWorld")
-            self.assertIn("switched databank", notice.lower())
-            self.assertEqual(app.ask_out.get("1.0", "end-1c"), notice)
-            self.assertEqual(str(app.databank_status.cget("text")), notice)
+            hold = ui_app.seed_hold_line("RimWorld")
+            self.assertIn("Hold the line", hold)
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), hold)
+            self.assertEqual(str(app.databank_status.cget("text")), hold)
             self.assertEqual(str(app.status.cget("text")), reminder)
-            self.assertNotEqual(reminder, notice)
+            self.assertNotEqual(reminder, hold)
         finally:
             app._on_close()
 

@@ -47,7 +47,7 @@ macOS / Linux: same commands. venv optional. Typed fallback always works even if
 
 State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed. Restart and `list` still shows it.
 
-Databank (one box on the right): paste a public wiki URL or type a game question, hit **Submit**. A public http/https URL does a GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). Anything else is ASK. No game detected → `general`. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. ASK searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, paste a wiki link first.
+Databank (one box on the right): paste a public wiki URL or type a game question, hit **Submit**. A public http/https URL does a GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). Anything else is ASK. No game detected → `general`. First time detect names a game with an empty folder, Battle Buddy searches DuckDuckGo HTML (no account, no key) for `{game} wiki`, keeps the top 3 wiki links, and fetches them in the background. Reminders stay live. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. ASK searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, paste a wiki link first.
 
 ---
 

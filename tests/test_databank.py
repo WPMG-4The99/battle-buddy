@@ -182,6 +182,8 @@ class ReminderLoopUntouchedTest(unittest.TestCase):
         self.assertIn("self.ask_entry", source)
         self.assertIn("ask_pages", source)
         self.assertIn("self.databank", source)
+        self.assertIn("_maybe_seed_wiki", source)
+        self.assertIn("Hold the line. Fetching wiki pages", source)
         self.assertNotIn("self.entry.insert(0, _EXAMPLE)", source)
         self.assertIn('protocol("WM_DELETE_WINDOW"', source)
         self.assertIn("def _clear_drafts", source)
