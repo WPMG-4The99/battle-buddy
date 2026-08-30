@@ -729,6 +729,13 @@ class BattleBuddyApp:
             for item in self.engine.list_all()
             if item.status != "cancelled"
         ]
+        reminders.sort(
+            key=lambda item: (
+                0 if item.id in self._firing else
+                1 if item.status == STATUS_PENDING else
+                2
+            )
+        )
         if not reminders:
             tk.Label(
                 self.list_box,
