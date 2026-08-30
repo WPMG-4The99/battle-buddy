@@ -13,7 +13,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from battlebuddy.databank.clean import is_howto_question, recipe_sentence, strip_markup
+from battlebuddy.databank.clean import (
+    compile_howto_line,
+    is_howto_question,
+    recipe_sentence,
+    strip_markup,
+)
 from battlebuddy.databank.search import (
     AskResult,
     _HOWTO_MISS,
@@ -58,13 +63,13 @@ def present_ask(
     game: str | None = None,
     ports: tuple[int, ...] | None = None,
 ) -> str:
-    """Start-path, recipe, or enable extract first. How-to miss is never LLM."""
-    extracted = compile_ask_line(question, _ask_texts(result, store, game))
-    if extracted:
-        return extracted
+    """If output() already compiled, keep it. How-to miss is never LLM."""
     cleaned = result.output()
     if _is_ask_extract(cleaned, question):
         return cleaned
+    extracted = compile_ask_line(question, _ask_texts(result, store, game))
+    if extracted:
+        return extracted
     if is_howto_question(question):
         if not result.hits:
             return cleaned
@@ -79,15 +84,21 @@ def present_ask(
 
 
 def _is_ask_extract(text: str, question: str) -> bool:
-    """True when output() already compiled a start path or recipe line."""
+    """True when output() already compiled a start path, recipe, or enable line."""
     blob = (text or "").strip()
     if not blob:
         return False
     low = blob.lower()
+    if "nothing invented" in low or "can't find that" in low:
+        return False
     if "upgrade a burgage plot to level" in low and "into" in low:
         return True
     nouns = content_terms(query_terms(question))
-    return recipe_sentence(blob, nouns) is not None
+    if recipe_sentence(blob, nouns) is not None:
+        return True
+    if is_howto_question(question) and compile_howto_line([blob], nouns):
+        return True
+    return False
 
 
 def _ask_texts(
@@ -109,7 +120,7 @@ def top_page_text(
     if not result.hits:
         return ""
     title = result.hits[0].title.strip()
-    found = page_text_for_title(store, game, title, cap)
+    found = page_text_for_title(store, game, title, cap, snippet=result.hits[0].snippet)
     if found:
         return found
     return strip_markup(result.hits[0].snippet)[:cap]

@@ -184,8 +184,10 @@ def page_texts_for_hits(
             continue
         body = ""
         if store is not None:
-            body = page_text_for_title(store, game, hit.title, cap)
-        texts.append(body or f"{hit.title}\n{strip_markup(hit.snippet)}")
+            body = page_text_for_title(
+                store, game, hit.title, cap, snippet=hit.snippet
+            )
+        texts.append(body or f"{hit.title}.\n{strip_markup(hit.snippet)}")
     return texts
 
 
@@ -194,8 +196,9 @@ def page_text_for_title(
     game: str | None,
     title: str,
     cap: int | None = None,
+    snippet: str | None = None,
 ) -> str:
-    """Saved page body for a hit title, markup stripped. Empty if missing."""
+    """Saved page body for a hit title. Same title: snippet match, else longest."""
     wanted = (title or "").strip()
     if not wanted:
         return ""
@@ -207,6 +210,7 @@ def page_text_for_title(
             continue
         seen.add(key)
         folders.append(extra)
+    matches: list[tuple[str, str]] = []
     for folder in folders:
         for path in page_files(folder):
             try:
@@ -219,10 +223,36 @@ def page_text_for_title(
             parts = raw.split("\n", 2)
             text = parts[2] if len(parts) > 2 else raw
             cleaned = strip_markup(text)
-            if cap is not None:
-                cleaned = cleaned[:cap]
-            return f"{first}.\n{cleaned}"
-    return ""
+            capped = cleaned if cap is None else cleaned[:cap]
+            matches.append((cleaned, f"{first}.\n{capped}"))
+    if not matches:
+        return ""
+    snip = strip_markup(snippet or "").strip()
+    if snip:
+        ranked = sorted(
+            matches,
+            key=lambda item: (_snippet_overlap(item[0], snip), len(item[0])),
+            reverse=True,
+        )
+        if _snippet_overlap(ranked[0][0], snip) > 0:
+            return ranked[0][1]
+    matches.sort(key=lambda item: len(item[0]), reverse=True)
+    return matches[0][1]
+
+
+def _snippet_overlap(body: str, snippet: str) -> int:
+    """How much of the hit snippet is in this body. Stitched lines still score."""
+    snip = strip_markup(snippet or "").strip().lower()
+    blob = (body or "").lower()
+    if not snip or not blob:
+        return 0
+    if snip in blob:
+        return 10_000 + len(snip)
+    words = [item for item in _WORD.findall(snip) if len(item) > 1]
+    if not words:
+        return 0
+    bag = set(_WORD.findall(blob))
+    return sum(1 for item in words if item in bag)
 
 
 def _after_title(text: str) -> str:
