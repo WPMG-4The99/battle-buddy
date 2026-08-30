@@ -463,6 +463,16 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("databank_status", apply_src)
         self.assertIn("_maybe_seed_wiki", apply_src)
         self.assertIn("seed_hold_line", source)
+        self.assertIn("sources_count_line", source)
+        self.assertIn("self.source_count", source)
+        refresh = source.split("def _refresh_sources")[1].split("def ")[0]
+        self.assertIn("sources_count_line", refresh)
+        self.assertIn("list_sources", refresh)
+        self.assertNotIn("item.title", refresh)
+        self.assertNotIn("for item in sources", refresh)
+        ask_build = source.split("def _build_ask")[1].split("def ")[0]
+        self.assertIn("self.ask_out", ask_build)
+        self.assertIn("expand=True", ask_build)
         from battlebuddy.databank.seed import seed_hold_line
 
         self.assertIn("Hold the line. Fetching wiki pages", seed_hold_line("Valheim"))

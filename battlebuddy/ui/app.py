@@ -142,6 +142,14 @@ def switched_databank_line(game: str | None) -> str:
     return f"Switched databank to {game_slug(game)}."
 
 
+def sources_count_line(game: str | None, count: int) -> str:
+    """One running total for the current game. No title dump."""
+    name = (game or "").strip() or "General"
+    pages = max(0, int(count))
+    noun = "page" if pages == 1 else "pages"
+    return f"{name} · {pages} {noun} on disk"
+
+
 def _local_stamp(iso: str) -> str:
     parsed = datetime.fromisoformat(iso)
     if parsed.tzinfo is None:
@@ -462,11 +470,20 @@ class BattleBuddyApp:
         self.databank_status.pack(fill="x", pady=(0, 8))
 
         self.source_box = tk.Frame(box, bg=_BG)
-        self.source_box.pack(fill="x")
+        self.source_box.pack(fill="x", expand=False)
+        self.source_count = tk.Label(
+            self.source_box,
+            text=sources_count_line(self._game_name, 0),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+        )
+        self.source_count.pack(fill="x", pady=4)
         self._refresh_sources()
 
     def _build_ask(self, parent: object) -> None:
-        """ASK answer pane under the one box. Reminders never land here."""
+        """ASK answer pane takes remaining right-column height. No wiki dump."""
         tk = self.tk
         box = tk.Frame(parent, bg=_BG)
         box.pack(fill="both", expand=True, pady=(8, 4))
@@ -474,6 +491,7 @@ class BattleBuddyApp:
         pane = tk.Frame(box, bg=_INPUT_BG, height=220)
         pane.pack(fill="both", expand=True, pady=(0, 4))
         pane.pack_propagate(False)
+        self.ask_pane = pane
         self.ask_out = tk.Text(
             pane,
             font=_HINT_FONT,
@@ -553,35 +571,15 @@ class BattleBuddyApp:
             self.databank_header.config(text=databank_label(self._game_name))
         except Exception:
             pass
+        sources = self.databank.list_sources(self._game_name)
+        line = sources_count_line(self._game_name, len(sources))
+        label = getattr(self, "source_count", None)
+        if label is None:
+            return
         try:
-            for child in self.source_box.winfo_children():
-                child.destroy()
+            label.config(text=line)
         except Exception:
             return
-        tk = self.tk
-        sources = self.databank.list_sources(self._game_name)
-        if not sources:
-            tk.Label(
-                self.source_box,
-                text="No sources on disk for this game.",
-                font=("Arial", 12),
-                fg=_MUTED,
-                bg=_BG,
-                anchor="w",
-            ).pack(fill="x", pady=4)
-            return
-        for item in sources:
-            line = item.title or item.url
-            tk.Label(
-                self.source_box,
-                text=line,
-                font=("Arial", 12),
-                fg=_MUTED,
-                bg=_BG,
-                anchor="w",
-                wraplength=520,
-                justify="left",
-            ).pack(fill="x", pady=2)
 
     def _ask(self) -> None:
         """Local retrieve first. Hunt the game wiki in the background on a miss."""
