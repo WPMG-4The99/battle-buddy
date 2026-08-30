@@ -45,6 +45,21 @@ _CLAIM_SCRAPS = (
     "version history",
     "workplaces",
 )
+_LIVESTOCK_NOUNS = frozenset(
+    {"animal", "animals", "goat", "goats", "livestock", "pig", "pigs", "sheep"}
+)
+_ANIMAL_PEN = re.compile(r"\banimal\s+pen\b", re.IGNORECASE)
+_LIVESTOCK_POST = re.compile(
+    r"\blivestock\s+trad(?:ing\s+post|er)\b",
+    re.IGNORECASE,
+)
+_IMPORT = re.compile(r"\bimport(?:s|ed|ing)?\b", re.IGNORECASE)
+_GOAT = re.compile(r"\bgoats?\b", re.IGNORECASE)
+_PIG = re.compile(r"\bpigs?\b", re.IGNORECASE)
+_ALREADY_LIVESTOCK = re.compile(
+    r"(Add an Animal Pen backyard to the burgage \([^)]+\)\.(?: Import [^.]+\.)?)",
+    re.IGNORECASE,
+)
 _ENABLE_WORDS = {"allow", "allows", "enable", "enables", "unlock", "unlocks"}
 _PASSIVE_ENABLED = re.compile(r"\bif\s+enabled\b", re.IGNORECASE)
 _REQUIRE_WORDS = {"need", "needed", "needs", "require", "required", "requires"}
@@ -172,6 +187,12 @@ def is_claim_question(question: str) -> bool:
     return bool(words & _CLAIM_VERBS) and bool(words & _CLAIM_NOUNS)
 
 
+def is_livestock_question(question: str) -> bool:
+    """livestock / animal / goat / pig / sheep. Wispr '?' is optional."""
+    words = set(_WORD.findall((question or "").lower()))
+    return bool(words & _LIVESTOCK_NOUNS)
+
+
 def claim_search_terms(question: str) -> list[str]:
     """Wiki nouns for spoken kill/defeat a ruler. Pages say claim/eliminate."""
     if not is_claim_question(question):
@@ -253,6 +274,7 @@ def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str 
     needed = [item.lower() for item in (nouns or []) if item]
     if not needed:
         return None
+    focus = _enable_action_nouns(needed)
     enable: str | None = None
     cost: str | None = None
     action: str | None = None
@@ -266,7 +288,7 @@ def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str 
             if not _has_nouns(sent, needed):
                 continue
             words = set(_cue_words(sent))
-            if enable is None and _is_enable_sentence(sent, needed):
+            if enable is None and _is_enable_sentence(sent, focus):
                 enable = sent.strip()
                 prior = sents[index - 1].strip() if index > 0 else ""
                 if prior and _is_cost_sentence(prior):
@@ -276,6 +298,7 @@ def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str 
             elif (
                 action is None
                 and words & _ACTION_WORDS
+                and _has_nouns(sent, focus)
                 and _sentence_count(sent) == 1
                 and _howto_short(sent)
             ):
@@ -313,13 +336,39 @@ def compile_claim_line(texts: list[str]) -> str | None:
                 claim_regions = sent.strip()
     if cost is None:
         return None
-    first = eliminate or claim_regions
+    first = claim_regions or eliminate
     if first and first.lower() != cost.lower():
         line = f"{first} {cost}"
         if _sentence_count(line) <= 2 and _howto_short(line):
             return line
     if _sentence_count(cost) <= 2 and _howto_short(cost):
         return cost
+    return None
+
+
+def compile_livestock_line(texts: list[str]) -> str | None:
+    """Animal Pen backyard + livestock-trader import. Extract, do not invent."""
+    blob = " ".join(strip_markup(text) for text in texts if text)
+    if not blob:
+        return None
+    already = _ALREADY_LIVESTOCK.search(blob)
+    if already and _howto_short(already.group(1)):
+        return already.group(1).strip()
+    if not _ANIMAL_PEN.search(blob):
+        return None
+    cost = _animal_pen_cost(blob)
+    animals = _pen_animals(blob)
+    if not cost or not animals:
+        return None
+    first = f"Add an Animal Pen backyard to the burgage ({cost})."
+    imported = _livestock_import_bit(blob, animals)
+    if imported:
+        line = f"{first} {imported}"
+    else:
+        who = " or ".join(animals)
+        line = f"Add an Animal Pen backyard to the burgage ({cost}) for {who}."
+    if _sentence_count(line) <= 2 and _howto_short(line):
+        return line
     return None
 
 
@@ -530,6 +579,66 @@ def _term_in(bag: set[str], term: str) -> bool:
 def _has_nouns(text: str, nouns: list[str]) -> bool:
     bag = set(_cue_words(text))
     return any(term_in(bag, noun) for noun in nouns)
+
+
+def _enable_action_nouns(nouns: list[str]) -> list[str]:
+    """Livestock questions need the animal noun, not just burgage/plots."""
+    focus = [item for item in nouns if item in _LIVESTOCK_NOUNS]
+    return focus if focus else nouns
+
+
+def _animal_pen_cost(text: str) -> str | None:
+    """`Animal Pen 4 Planks 25 RW` or `(4 planks, 25 regional wealth)`."""
+    found = _extension_cost(text, "Animal Pen") or _extension_cost(text, "Pen")
+    if found:
+        return found
+    for match in _ANIMAL_PEN.finditer(text or ""):
+        window = (text or "")[match.start() : match.start() + 80]
+        row = _COST_ROW.search(window)
+        if row:
+            return f"{row.group('planks')} planks, {row.group('rw')} regional wealth"
+        paren = _COST_PAREN.search(window)
+        if paren:
+            return f"{paren.group('planks')} planks, {paren.group('rw')} regional wealth"
+    return None
+
+
+def _pen_animals(text: str) -> list[str]:
+    """Goats and/or pigs near the Animal Pen row. Never invent sheep-on-burgage."""
+    raw = text or ""
+    found: list[str] = []
+    windows: list[str] = []
+    for match in _ANIMAL_PEN.finditer(raw):
+        windows.append(raw[match.start() : match.start() + 280])
+    if not windows:
+        windows = [raw]
+    blob = " ".join(windows)
+    if _GOAT.search(blob) or _GOAT.search(raw):
+        found.append("goats")
+    if _PIG.search(blob) or _PIG.search(raw):
+        found.append("pigs")
+    return found
+
+
+def livestock_page_signal(text: str) -> bool:
+    """True when the page has an Animal Pen row or a livestock import building."""
+    raw = text or ""
+    if _ANIMAL_PEN.search(raw):
+        return True
+    return bool(_LIVESTOCK_POST.search(raw) and _IMPORT.search(raw))
+
+
+def _livestock_import_bit(text: str, animals: list[str]) -> str | None:
+    """Second sentence only when the import building is on the page."""
+    raw = text or ""
+    if not _LIVESTOCK_POST.search(raw) or not _IMPORT.search(raw):
+        return None
+    who = " or ".join(animals) if animals else "animals"
+    if re.search(r"\blivestock\s+trading\s+post\b", raw, re.IGNORECASE):
+        name = "Livestock trading post"
+    else:
+        name = "Livestock trader"
+    return f"Import {who} at the {name}."
 
 
 def _is_enable_sentence(sent: str, nouns: list[str]) -> bool:

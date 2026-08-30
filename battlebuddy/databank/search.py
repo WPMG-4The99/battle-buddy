@@ -9,9 +9,12 @@ from pathlib import Path
 from battlebuddy.databank.clean import (
     compile_claim_line,
     compile_howto_line,
+    compile_livestock_line,
     expand_search_terms,
+    livestock_page_signal,
     is_claim_question,
     is_howto_question,
+    is_livestock_question,
     is_patch_title,
     is_start_question,
     page_require_line,
@@ -56,11 +59,14 @@ _WEAK = {
     "another",
     "folks",
     "get",
+    "into",
     "make",
     "need",
     "people",
     "person",
     "please",
+    "plot",
+    "plots",
     "production",
     "set",
     "setup",
@@ -174,6 +180,13 @@ def compile_ask_line(question: str, texts: list[str]) -> str | None:
         claim = compile_claim_line(texts)
         if claim:
             return claim
+    if is_livestock_question(question):
+        livestock = compile_livestock_line(texts)
+        if livestock:
+            return livestock
+        # How-to livestock with no Animal Pen compile is a miss, not burgage junk.
+        if is_howto_question(question):
+            return None
     if is_howto_question(question):
         return compile_howto_line(texts, nouns)
     return None
@@ -196,6 +209,47 @@ def page_texts_for_hits(
                 store, game, hit.title, cap, snippet=hit.snippet
             )
         texts.append(body or f"{hit.title}.\n{strip_markup(hit.snippet)}")
+    return texts
+
+
+def livestock_compile_texts(
+    store: DatabankStore | None,
+    game: str | None,
+    result: AskResult,
+) -> list[str]:
+    """Hit pages plus any saved Animal Pen / livestock-trader page. Extract only."""
+    texts = page_texts_for_hits(store, game, result, cap=None)
+    if store is None:
+        return texts
+    seen = {strip_markup(item).lower()[:80] for item in texts}
+    folders = [store.folder(game)]
+    known = {folders[0].resolve()}
+    for extra in store.list_saved_folders():
+        key = extra.resolve()
+        if key in known:
+            continue
+        known.add(key)
+        folders.append(extra)
+    for folder in folders:
+        for path in page_files(folder):
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            first = (raw.splitlines()[0].strip() if raw else "") or "untitled"
+            if is_patch_title(first):
+                continue
+            parts = raw.split("\n", 2)
+            body = parts[2] if len(parts) > 2 else raw
+            cleaned = strip_markup(body)
+            if not livestock_page_signal(cleaned):
+                continue
+            blob = f"{first}.\n{cleaned}"
+            key = strip_markup(blob).lower()[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            texts.append(blob)
     return texts
 
 
@@ -356,10 +410,25 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
     match_terms = expand_search_terms(question, terms)
     path = start_path_sentence(combined, needed) if is_start_question(question) else None
     recipe = recipe_sentence(cleaned, needed)
-    howto = compile_howto_line([combined], needed) if is_howto_question(question) else None
+    livestock = compile_livestock_line([combined]) if is_livestock_question(question) else None
+    howto = None
+    if livestock is None and not is_livestock_question(question) and is_howto_question(question):
+        howto = compile_howto_line([combined], needed)
     claim = compile_claim_line([combined]) if is_claim_question(question) else None
-    require = page_require_line(cleaned, needed) if howto is None and claim is None else None
-    snippet = path or recipe or howto or claim or require or _clip_cleaned(cleaned, match_needed)
+    require = (
+        page_require_line(cleaned, needed)
+        if howto is None and claim is None and livestock is None
+        else None
+    )
+    snippet = (
+        path
+        or recipe
+        or livestock
+        or howto
+        or claim
+        or require
+        or _clip_cleaned(cleaned, match_needed)
+    )
     window = _SNIP_WORDS
     if len(words) <= window:
         if not _has_content(words, match_needed):
@@ -370,7 +439,14 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
         return Hit(
             title=title,
             snippet=snippet,
-            score=_adjust_score(score, title, path, recipe, howto or claim),
+            score=_adjust_score(
+                score,
+                title,
+                path,
+                recipe,
+                livestock or howto or claim,
+                livestock_signal=is_livestock_question(question) and livestock_page_signal(cleaned),
+            ),
         )
     best_score = 0
     for start in range(0, len(words) - window + 1, 4):
@@ -385,7 +461,14 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
     return Hit(
         title=title,
         snippet=snippet,
-        score=_adjust_score(best_score, title, path, recipe, howto or claim),
+        score=_adjust_score(
+            best_score,
+            title,
+            path,
+            recipe,
+            livestock or howto or claim,
+            livestock_signal=is_livestock_question(question) and livestock_page_signal(cleaned),
+        ),
     )
 
 
@@ -395,6 +478,7 @@ def _adjust_score(
     path: str | None,
     recipe: str | None,
     howto: str | None = None,
+    livestock_signal: bool = False,
 ) -> int:
     """Demote patch notes. Prefer a compiled start path, produce row, or enable line."""
     low = (title or "").lower()
@@ -405,6 +489,8 @@ def _adjust_score(
     elif recipe:
         score += 2
     elif howto:
+        score += 4
+    if livestock_signal and not howto:
         score += 4
     if "official wiki" in low:
         score += 3
