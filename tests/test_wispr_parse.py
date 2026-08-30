@@ -84,6 +84,56 @@ class WisprPhraseParseTest(unittest.TestCase):
         self.assertEqual(hour.delay_seconds, 3600)
         self.assertEqual(ninety.delay_seconds, 90 * 60)
 
+    def test_give_me_five_minute_timer_with_question_mark(self) -> None:
+        parsed = parse_reminder(
+            "Give me a five-minute timer to check for the construction of the church?"
+        )
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertNotIn("?", parsed.text)
+        self.assertIn("church", parsed.text.lower())
+        self.assertIn("construction", parsed.text.lower())
+
+    def test_give_me_five_minute_timer_without_question_mark(self) -> None:
+        parsed = parse_reminder(
+            "Give me a five-minute timer to check for the construction of the church"
+        )
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertEqual(parsed.text, "check for the construction of the church")
+
+    def test_give_me_digit_minute_timer(self) -> None:
+        parsed = parse_reminder("give me a 5 minute timer to check the church")
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertEqual(parsed.text, "check the church")
+
+    def test_set_hyphen_minute_timer_for(self) -> None:
+        parsed = parse_reminder("set a 5-minute timer for the church")
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertEqual(parsed.text, "the church")
+
+    def test_give_me_hyphen_delay_without_timer_word(self) -> None:
+        parsed = parse_reminder("give me a five-minute to check the church")
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertEqual(parsed.text, "check the church")
+
+    def test_remind_me_in_five_minutes_still_locks(self) -> None:
+        parsed = parse_reminder(
+            "remind me in 5 minutes to check for the construction of the church"
+        )
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 300)
+        self.assertEqual(parsed.text, "check for the construction of the church")
+
+    def test_remind_me_in_one_minute_food_stores_still_locks(self) -> None:
+        parsed = parse_reminder("remind me in 1 minute to check food stores")
+        assert parsed is not None
+        self.assertEqual(parsed.delay_seconds, 60)
+        self.assertEqual(parsed.text, "check food stores")
+
     def test_no_delay_stays_unparsed(self) -> None:
         self.assertIsNone(parse_reminder("check wood"))
         self.assertIsNone(parse_reminder("I need to check wood"))

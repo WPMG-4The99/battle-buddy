@@ -79,7 +79,12 @@ _FRACTION_AMOUNT = r"(?:half\s+an?|(?:a\s+)?quarter(?:\s+of(?:\s+an?)?)?)"
 _AMOUNT = rf"(?:{_AND_A_HALF_AMOUNT}|{_FRACTION_AMOUNT}|{_SIMPLE_AMOUNT})"
 
 _UNIT = r"seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?"
-_DELAY = rf"(?P<n>{_AMOUNT})\s*(?P<unit>{_UNIT})(?P<half>\s+and\s+a\s+half)?"
+# Optional hyphen so Wispr "five-minute" locks. Space still required-or-hyphen
+# around the join; twenty-one stays one amount because _SPOKEN_AMOUNT eats it.
+_DELAY = rf"(?P<n>{_AMOUNT})\s*-?\s*(?P<unit>{_UNIT})(?P<half>\s+and\s+a\s+half)?"
+
+# Wispr leftover ? ! . at the end of a token. Keep 1.5 (dot sits on a digit).
+_TOKEN_END_SENTENCE_PUNCT = re.compile(r"[.?!]+(?=\s|$)")
 
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -92,6 +97,19 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
     re.compile(
         rf"^\s*remind\s+me\s+to\s+(?P<text>.+?)\s+in\s+{_DELAY}\s*$",
+        re.IGNORECASE,
+    ),
+    # Wispr timer: "give me a five-minute timer to check the church"
+    re.compile(
+        rf"^\s*give\s+me\s+(?:a|an)\s+{_DELAY}(?:\s+timer)?\s+(?:to|for)\s+(?P<text>.+?)\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^\s*set\s+(?:a|an)\s+{_DELAY}(?:\s+timer)?\s+(?:to|for)\s+(?P<text>.+?)\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^\s*(?:(?:a|an)\s+)?{_DELAY}\s+timer\s+(?:to|for)\s+(?P<text>.+?)\s*$",
         re.IGNORECASE,
     ),
     # Delay first, no "remind me": "in one minute test wood supply"
@@ -128,6 +146,16 @@ _LEADING_FILLER = re.compile(
     re.IGNORECASE,
 )
 _LEADING_TO = re.compile(r"^to\s+", re.IGNORECASE)
+
+
+def _normalize_reminder_line(line: str) -> str:
+    raw = " ".join(line.strip().split())
+    raw = _TOKEN_END_SENTENCE_PUNCT.sub("", raw)
+    return raw.strip()
+
+
+def _clean_task_text(text: str) -> str:
+    return text.strip().rstrip(".?!")
 
 
 def _strip_leading_fillers(raw: str) -> str:
@@ -239,7 +267,7 @@ class ParsedSnooze:
 
 
 def parse_reminder(line: str) -> ParsedReminder | None:
-    raw = " ".join(line.strip().split()).rstrip(".")
+    raw = _normalize_reminder_line(line)
     if not raw:
         return None
     raw = _strip_leading_fillers(raw)
@@ -257,7 +285,7 @@ def parse_reminder(line: str) -> ParsedReminder | None:
         if not match:
             continue
         delay = _delay_from_match(match)
-        text = match.group("text").strip().rstrip(".")
+        text = _clean_task_text(match.group("text"))
         if delay is None or not text:
             return None
         amount, unit_key, seconds = delay
