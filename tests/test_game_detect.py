@@ -14,7 +14,11 @@ from battlebuddy.game_detect import (
     status_line,
 )
 from battlebuddy.game_detect.names import known_label
-from battlebuddy.game_detect.scan import list_linux_processes, parse_tasklist_csv
+from battlebuddy.game_detect.scan import (
+    list_linux_processes,
+    list_windows_image_paths,
+    parse_tasklist_csv,
+)
 
 
 class NameMapTest(unittest.TestCase):
@@ -58,6 +62,60 @@ class DetectPickTest(unittest.TestCase):
         self.assertEqual(status_line("Manor Lords"), "Manor Lords")
         self.assertEqual(status_line("  "), "no game detected")
 
+    def test_unreal_shipping_unknown_is_captured(self) -> None:
+        self.assertEqual(
+            detect_from(["svchost.exe", "Satisfactory-Win64-Shipping.exe", "chrome.exe"]),
+            "Satisfactory",
+        )
+        self.assertEqual(
+            detect_from(["FactoryGame-Win64-Shipping.exe"]),
+            "Factory Game",
+        )
+        self.assertIsNone(known_label("Satisfactory-Win64-Shipping.exe"))
+
+    def test_steam_library_path_uses_folder_name(self) -> None:
+        path = r"C:\Program Files (x86)\Steam\steamapps\common\Some New Game\SomeNewGame.exe"
+        self.assertEqual(detect_from([path]), "Some New Game")
+        self.assertEqual(
+            detect_from(["SomeNewGame.exe"], paths=[path]),
+            "Some New Game",
+        )
+        text = '"SomeNewGame.exe","4242","Console","1","1 K"\n'
+        injected = list_windows_image_paths(
+            tasklist_text=text,
+            path_map={4242: path},
+        )
+        self.assertEqual(injected, [path])
+        self.assertEqual(detect_from(["SomeNewGame.exe"], paths=injected), "Some New Game")
+
+    def test_launchers_ignored_even_on_steam_path(self) -> None:
+        steam = r"C:\Program Files (x86)\Steam\steam.exe"
+        chrome = r"C:\Program Files (x86)\Steam\steamapps\common\chrome\chrome.exe"
+        self.assertIsNone(detect_from([steam, chrome]))
+        self.assertIsNone(
+            detect_from(
+                ["steam.exe", "chrome.exe"],
+                paths=[steam, chrome],
+            )
+        )
+        self.assertIsNone(
+            detect_from(
+                ["svchost.exe", "python.exe", "explorer.exe"],
+            )
+        )
+
+    def test_scan_prefers_other_when_leftover_known_still_running(self) -> None:
+        both = ["ManorLords.exe", "Satisfactory-Win64-Shipping.exe"]
+        self.assertEqual(detect_from(both), "Manor Lords")
+        self.assertEqual(
+            detect_from(both, prefer_other="Manor Lords"),
+            "Satisfactory",
+        )
+        self.assertEqual(
+            detect_from(["Satisfactory-Win64-Shipping.exe"], prefer_other="Manor Lords"),
+            "Satisfactory",
+        )
+
 
 class UiImportSafeTest(unittest.TestCase):
     def test_countdown_and_buttons_still_import(self) -> None:
@@ -67,6 +125,9 @@ class UiImportSafeTest(unittest.TestCase):
         source = Path(ui_app.__file__).read_text(encoding="utf-8")
         self.assertIn('text="SUBMIT"', source)
         self.assertIn('text="SPEAK"', source)
+        self.assertIn('text="SCAN"', source)
+        self.assertIn("Scanning.", source)
+        self.assertIn("def _scan_now", source)
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("play_ticks_async", source)
 
@@ -82,6 +143,14 @@ class TasklistParseTest(unittest.TestCase):
         self.assertIn("ManorLords.exe", names)
         self.assertIn("chrome.exe", names)
         self.assertEqual(detect_from(names), "Manor Lords")
+
+    def test_windows_scan_hides_shell_and_accepts_path_map(self) -> None:
+        from battlebuddy.game_detect import scan as scan_mod
+
+        source = Path(scan_mod.__file__).read_text(encoding="utf-8")
+        self.assertIn("CREATE_NO_WINDOW", source)
+        self.assertIn("QueryFullProcessImageName", source)
+        self.assertNotIn("psutil", source)
 
 
 class LinuxProcScanTest(unittest.TestCase):
