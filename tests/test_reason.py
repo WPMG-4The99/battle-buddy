@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -242,25 +243,41 @@ class BundledServerTest(unittest.TestCase):
         hide = windows_hidden_popen_kwargs()
         flags = int(hide["creationflags"])
         self.assertEqual(flags & 0x08000000, 0x08000000)
+        self.assertEqual(flags & 0x00000008, 0x00000008)
+        self.assertEqual(flags & 0x00000010, 0)
         info = hide["startupinfo"]
         self.assertTrue(int(getattr(info, "dwFlags", 0)) & 1)
         self.assertEqual(int(getattr(info, "wShowWindow", 99)), 0)
         kwargs = bundled_popen_kwargs("/tmp/llm")
         self.assertEqual(kwargs["cwd"], "/tmp/llm")
         self.assertTrue(kwargs.get("start_new_session"))
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
         from battlebuddy.databank import reason
 
         text = Path(reason.__file__).read_text(encoding="utf-8")
         self.assertIn("CREATE_NO_WINDOW", text)
         self.assertIn("0x08000000", text)
+        self.assertIn("DETACHED_PROCESS", text)
+        self.assertIn("0x00000008", text)
         self.assertIn("STARTF_USESHOWWINDOW", text)
         self.assertIn("SW_HIDE", text)
         self.assertIn("startupinfo", text)
         self.assertIn("STARTUPINFO", text)
+        self.assertIn("stdin", text)
+        self.assertNotIn("CREATE_NEW_CONSOLE", text)
+        hide_src = text.split("def windows_hidden_popen_kwargs")[1].split("def ")[0]
+        self.assertIn("DETACHED_PROCESS", hide_src)
+        self.assertIn("CREATE_NO_WINDOW", hide_src)
+        self.assertNotIn("CREATE_NEW_CONSOLE", hide_src)
         start_src = text.split("def start_bundled_server")[1].split("def ")[0]
         self.assertIn("bundled_popen_kwargs", start_src)
         self.assertIn("127.0.0.1", text)
         self.assertNotIn("0.0.0.0", bundled_server_argv(Path("x"), Path("y")))
+        flags = int(hide["creationflags"])
+        self.assertEqual(flags & 0x00000008, 0x00000008)
+        self.assertEqual(flags & 0x00000010, 0)
 
     def test_start_passes_hidden_windows_kwargs(self) -> None:
         tmp = TemporaryDirectory()
@@ -285,9 +302,14 @@ class BundledServerTest(unittest.TestCase):
                         self.assertTrue(start_bundled_server())
         kwargs = popen.call_args.kwargs
         self.assertEqual(int(kwargs["creationflags"]) & 0x08000000, 0x08000000)
+        self.assertEqual(int(kwargs["creationflags"]) & 0x00000008, 0x00000008)
+        self.assertEqual(int(kwargs["creationflags"]) & 0x00000010, 0)
         self.assertIs(kwargs["startupinfo"], hide["startupinfo"])
         self.assertEqual(int(kwargs["startupinfo"].wShowWindow), 0)
         self.assertTrue(int(kwargs["startupinfo"].dwFlags) & 1)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
         argv = popen.call_args[0][0]
         self.assertEqual(argv[argv.index("--host") + 1], "127.0.0.1")
         self.assertNotIn("0.0.0.0", argv)

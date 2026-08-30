@@ -62,6 +62,17 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn('side="bottom"', build)
         self.assertIn("self.ask_entry", databank)
         self.assertNotIn("ASK YOUR QUESTION", databank)
+        self.assertIn("sources_count_line", source)
+        refresh = source.split("def _refresh_sources")[1].split("def ")[0]
+        self.assertIn("sources_count_line", refresh)
+        self.assertIn("list_sources", refresh)
+        self.assertNotIn("item.title", refresh)
+        self.assertNotIn("item.url", refresh)
+        self.assertNotIn("No sources on disk for this game.", refresh)
+        ask_build = source.split("def _build_ask")[1].split("def ")[0]
+        self.assertIn("fill=\"both\"", ask_build)
+        self.assertIn("expand=True", ask_build)
+        self.assertIn("self.ask_out", ask_build)
 
 
 class DraftBoxesLiveTest(unittest.TestCase):
@@ -158,6 +169,7 @@ class DraftBoxesLiveTest(unittest.TestCase):
             app.ask_entry.insert(0, "where is food")
             app._submit_query()
             self.assertEqual(routed, ["fetch", "ask"])
+            self.assertIn(ui_app.sources_count_line(app._game_name, 0), labels)
         finally:
             app._on_close()
 
@@ -203,6 +215,76 @@ class DraftBoxesLiveTest(unittest.TestCase):
             after = _visible_label_texts(app.root)
             self.assertNotIn("SEEN", after)
             self.assertIn("FIRED", after)
+        finally:
+            app._on_close()
+
+    def test_wiki_count_line_not_title_dump_ask_pane_expands(self) -> None:
+        try:
+            import tkinter as tk
+        except ImportError:
+            self.skipTest("no tkinter")
+        try:
+            probe = tk.Tk()
+            probe.destroy()
+        except Exception:
+            self.skipTest("no display")
+
+        from battlebuddy.databank.store import DatabankStore
+
+        store = DatabankStore(self.home)
+        titles = [
+            "Manor Lords Official Wiki",
+            "Manor Lords Wiki | Fandom",
+            "Approval - Manor Lords Official Wiki",
+            "Warfare - Manor Lords Official Wiki",
+            "Military items",
+            "Trade",
+            "Development",
+            "0.7.955 - Early Access",
+            "FAQ",
+            "Burgage plot",
+            "Food",
+            "Hunting",
+            "Spear",
+            "Amenities",
+            "Clay furnace",
+        ]
+        for index, title in enumerate(titles):
+            store.save_page(
+                "Manor Lords",
+                f"https://example.com/wiki/{index}",
+                title,
+                f"{title} body",
+            )
+        app = ui_app.BattleBuddyApp(tk)
+        try:
+            app.root.geometry("1200x800")
+            app.root.deiconify()
+            app.root.update()
+            app.root.update_idletasks()
+            count = ui_app.sources_count_line("Manor Lords", len(titles))
+            labels = _visible_label_texts(app.root)
+            self.assertEqual(app._game_name, "Manor Lords")
+            self.assertEqual(str(app.source_count.cget("text")), count)
+            self.assertIn(count, labels)
+            self.assertEqual(count, "Manor Lords · 15 pages on disk")
+            for title in titles:
+                self.assertNotIn(title, labels)
+            info = app.ask_out.pack_info()
+            self.assertEqual(str(info.get("expand")), "1")
+            self.assertEqual(str(info.get("fill")), "both")
+            pane_info = app.ask_pane.pack_info()
+            self.assertEqual(str(pane_info.get("expand")), "1")
+            self.assertEqual(str(pane_info.get("fill")), "both")
+            win_top = int(app.root.winfo_rooty())
+            win_bottom = win_top + int(app.root.winfo_height())
+            out_top = int(app.ask_out.winfo_rooty())
+            out_bottom = out_top + int(app.ask_out.winfo_height())
+            self.assertGreater(int(app.ask_out.winfo_height()), 80)
+            self.assertGreater(out_top, int(app.source_count.winfo_rooty()))
+            self.assertGreaterEqual(out_top, win_top)
+            self.assertLess(out_bottom, win_bottom + 8)
+            self.assertLessEqual(int(app.source_box.winfo_height()), 40)
         finally:
             app._on_close()
 
@@ -254,6 +336,22 @@ def _visible_label_texts(widget: object) -> list[str]:
     for child in children:
         texts.extend(_visible_label_texts(child))
     return texts
+
+
+class SourcesCountLineTest(unittest.TestCase):
+    def test_uses_game_name_and_real_count(self) -> None:
+        self.assertEqual(
+            ui_app.sources_count_line("Manor Lords", 15),
+            "Manor Lords · 15 pages on disk",
+        )
+        self.assertEqual(
+            ui_app.sources_count_line("Manor Lords", 1),
+            "Manor Lords · 1 page on disk",
+        )
+        self.assertEqual(
+            ui_app.sources_count_line(None, 0),
+            "General · 0 pages on disk",
+        )
 
 
 if __name__ == "__main__":

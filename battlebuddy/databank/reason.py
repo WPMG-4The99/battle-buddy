@@ -26,6 +26,7 @@ PROBE_TIMEOUT = 1.5
 PAGE_CAP = 4000
 _LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 _CREATE_NO_WINDOW = 0x08000000
+_DETACHED_PROCESS = 0x00000008
 _STARTF_USESHOWWINDOW = 1
 _SW_HIDE = 0
 _PREFERRED_GGUF = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
@@ -173,9 +174,10 @@ def any_reasoner_listening(ports: tuple[int, ...] | None = None) -> bool:
 
 
 def bundled_popen_kwargs(cwd: str | Path) -> dict[str, object]:
-    """Popen kwargs for llama-server. Hidden console on Windows. Loopback only."""
+    """Popen kwargs for llama-server. Hidden even if parent is a console python."""
     kwargs: dict[str, object] = {
         "cwd": str(cwd),
+        "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
@@ -187,8 +189,14 @@ def bundled_popen_kwargs(cwd: str | Path) -> dict[str, object]:
 
 
 def windows_hidden_popen_kwargs() -> dict[str, object]:
-    """CREATE_NO_WINDOW plus STARTUPINFO SW_HIDE so llama-server.exe cannot flash."""
-    flags = _CREATE_NO_WINDOW
+    """Hide llama-server.exe even when Battle Buddy was launched from cmd.
+
+    CREATE_NO_WINDOW is ignored by a console parent. DETACHED_PROCESS
+    breaks the inherit so llama-server does not take the AppData console.
+    Do not allocate a second console. Loopback still works. Do not hide python.
+    """
+    flags = int(getattr(subprocess, "CREATE_NO_WINDOW", _CREATE_NO_WINDOW))
+    flags |= int(getattr(subprocess, "DETACHED_PROCESS", _DETACHED_PROCESS))
     extra = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     kwargs: dict[str, object] = {
         "creationflags": int(flags) | int(extra or 0),

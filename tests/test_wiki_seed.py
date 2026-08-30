@@ -231,8 +231,30 @@ class SeedUiTest(unittest.TestCase):
             self.assertEqual(len(app.databank.list_sources("Valheim")), 3)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), seed_done_line("Valheim", 3))
             self.assertEqual(str(app.status.cget("text")), reminder)
+            count = ui_app.sources_count_line("Valheim", 3)
+            self.assertEqual(count, "Valheim · 3 pages on disk")
+            self.assertEqual(str(app.source_count.cget("text")), count)
+            labels = _visible_label_texts(app.root)
+            self.assertIn(count, labels)
+            self.assertNotIn("Valheim_Wiki", labels)
+            self.assertNotIn("Building", labels)
         finally:
             app._on_close()
+
+
+def _visible_label_texts(widget: object) -> list[str]:
+    texts: list[str] = []
+    try:
+        texts.append(str(widget.cget("text")))
+    except Exception:
+        pass
+    try:
+        children = widget.winfo_children()
+    except Exception:
+        return texts
+    for child in children:
+        texts.extend(_visible_label_texts(child))
+    return texts
 
 
 if __name__ == "__main__":
