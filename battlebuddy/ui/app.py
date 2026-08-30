@@ -996,6 +996,7 @@ class BattleBuddyApp:
             return
         if game_slug(old) == game_slug(name):
             self._game_name = name
+            self._maybe_seed_wiki(name)
             return
         self._game_name = name
         self._refresh_sources()
@@ -1039,6 +1040,11 @@ class BattleBuddyApp:
             return
 
     def _seed_done(self, result: object, game: str | None) -> None:
+        saved = 0
+        if result is not None:
+            saved = int(getattr(result, "saved", 0) or 0)
+        if saved <= 0:
+            self._seed_started.discard(game_slug(game))
         if game_slug(self._game_name) != game_slug(game):
             return
         if result is None:

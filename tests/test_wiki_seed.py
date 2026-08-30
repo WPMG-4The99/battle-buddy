@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 from battlebuddy.databank.fetch import FetchResult
 from battlebuddy.databank.seed import (
+    SeedResult,
     _SEARCH,
+    _SEARCH_UA,
+    _search_request,
     looks_like_wiki_url,
     needs_wiki_seed,
     parse_ddg_links,
@@ -117,6 +120,65 @@ class SeedNewGameTest(unittest.TestCase):
         self.assertEqual(result.message, seed_fail_line())
         self.assertEqual(self.store.list_sources("Valheim"), [])
 
+    def test_empty_ddg_tries_fandom_guess_and_saves_if_fetch_ok(self) -> None:
+        with patch("battlebuddy.databank.seed.search_wiki_urls", return_value=[]), patch(
+            "battlebuddy.databank.store.DatabankStore.add_url",
+            side_effect=self._ok,
+        ) as add:
+            result = seed_new_game(self.store, "Bellwright")
+        add.assert_called_once_with("Bellwright", "https://bellwright.fandom.com/wiki/Bellwright")
+        self.assertTrue(result.started)
+        self.assertEqual(result.saved, 1)
+        self.assertEqual(len(self.store.list_sources("Bellwright")), 1)
+
+    def test_fandom_guess_not_saved_when_fetch_fails(self) -> None:
+        fail = FetchResult(ok=False, url="https://bellwright.fandom.com/wiki/Bellwright", message="404", kind="404")
+        with patch("battlebuddy.databank.seed.search_wiki_urls", return_value=[]), patch(
+            "battlebuddy.databank.store.DatabankStore.add_url",
+            return_value=fail,
+        ):
+            result = seed_new_game(self.store, "Bellwright")
+        self.assertEqual(result.saved, 0)
+        self.assertEqual(self.store.list_sources("Bellwright"), [])
+        self.assertEqual(result.message, seed_fail_line())
+
+
+class SearchUserAgentTest(unittest.TestCase):
+    def test_ddg_search_request_uses_browser_ua_not_battlebuddy(self) -> None:
+        req = _search_request(f"{_SEARCH}?q=Bellwright+wiki")
+        ua = req.get_header("User-agent") or ""
+        self.assertEqual(ua, _SEARCH_UA)
+        self.assertIn("Mozilla/5.0", ua)
+        self.assertIn("Chrome/", ua)
+        self.assertNotIn("BattleBuddy/0.3", ua)
+        self.assertNotIn("BattleBuddy", ua)
+
+    def test_get_html_sends_browser_ua(self) -> None:
+        from battlebuddy.databank.seed import _get_html
+
+        captured: dict[str, str] = {}
+
+        class FakeResp:
+            def read(self, _n: int | None = None) -> bytes:
+                return b"<html></html>"
+
+            def __enter__(self) -> FakeResp:
+                return self
+
+            def __exit__(self, *_args: object) -> bool:
+                return False
+
+        class FakeOpener:
+            def open(self, req: object, timeout: object = None) -> FakeResp:
+                captured["ua"] = str(getattr(req, "get_header")("User-agent"))
+                return FakeResp()
+
+        with patch("battlebuddy.databank.seed.build_opener", return_value=FakeOpener()):
+            html = _get_html(f"{_SEARCH}?q=Bellwright+wiki")
+        self.assertEqual(html, "<html></html>")
+        self.assertEqual(captured["ua"], _SEARCH_UA)
+        self.assertNotIn("BattleBuddy/0.3", captured["ua"])
+
 
 class SeedSourceLawTest(unittest.TestCase):
     def test_no_google_no_keys_no_openai(self) -> None:
@@ -124,6 +186,12 @@ class SeedSourceLawTest(unittest.TestCase):
         text = seed.read_text(encoding="utf-8")
         self.assertIn("html.duckduckgo.com/html", text)
         self.assertEqual(_SEARCH, "https://html.duckduckgo.com/html/")
+        self.assertIn("Mozilla/5.0", text)
+        self.assertIn("Chrome/", text)
+        self.assertIn("Mozilla/5.0", _SEARCH_UA)
+        self.assertIn("Chrome/", _SEARCH_UA)
+        self.assertNotIn("BattleBuddy/0.3", _SEARCH_UA)
+        self.assertNotIn("BattleBuddy/0.3", text)
         self.assertNotIn("google.com/search", text)
         self.assertNotIn("googleapis", text)
         self.assertNotIn("openai", text.lower())
@@ -200,6 +268,27 @@ class SeedUiTest(unittest.TestCase):
                 search.assert_not_called()
             self.assertEqual(started, [])
             self.assertEqual(app._game_name, "Manor Lords")
+        finally:
+            app._on_close()
+
+    def test_same_slug_empty_folder_retries_seed_after_zero_save(self) -> None:
+        app = self._app()
+        try:
+            started: list[str | None] = []
+            app._start_wiki_seed = started.append  # type: ignore[method-assign]
+            app._apply_game("Bellwright")
+            self.assertEqual(started, ["Bellwright"])
+            self.assertIn("bellwright", app._seed_started)
+            app._apply_game("Bellwright")
+            self.assertEqual(started, ["Bellwright"])
+            app._seed_done(SeedResult(True, 0, seed_done_line("Bellwright", 0)), "Bellwright")
+            self.assertNotIn("bellwright", app._seed_started)
+            started.clear()
+            app._apply_game("Bellwright")
+            self.assertEqual(started, ["Bellwright"])
+            self.assertIn("bellwright", app._seed_started)
+            note = seed_hold_line("Bellwright")
+            self.assertEqual(app.ask_out.get("1.0", "end-1c"), note)
         finally:
             app._on_close()
 

@@ -6,17 +6,18 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import URLError
 from urllib.parse import parse_qs, unquote, urlparse
-from urllib.request import build_opener
+from urllib.request import Request, build_opener
 
-from battlebuddy.databank.fetch import (
-    PublicRedirectHandler,
-    _request,
-    looks_like_login_url,
-    normalize_url,
-)
+from battlebuddy.databank.fetch import looks_like_login_url, normalize_url
+from battlebuddy.databank.slug import game_slug
 from battlebuddy.databank.store import DatabankStore
 
 _SEARCH = "https://html.duckduckgo.com/html/"
+_SEARCH_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
 _TIMEOUT = 15
 _MAX_LINKS = 3
 _SKIP_HOSTS = (
@@ -141,6 +142,8 @@ def seed_new_game(store: DatabankStore, game: str | None) -> SeedResult:
     if urls is None:
         return SeedResult(True, 0, seed_fail_line())
     if not urls:
+        urls = _fandom_fallback_urls(name)
+    if not urls:
         return SeedResult(True, 0, seed_done_line(name, 0))
     saved = 0
     for url in urls:
@@ -161,13 +164,35 @@ def _query(text: str) -> str:
     return quote_plus(text)
 
 
+def _fandom_fallback_urls(game: str) -> list[str]:
+    """Last try when DDG returns no wiki links. Only used if add_url later succeeds."""
+    name = (game or "").strip()
+    slug = game_slug(name)
+    if not name or slug == "general":
+        return []
+    page = name.replace(" ", "_")
+    return [f"https://{slug}.fandom.com/wiki/{page}"]
+
+
+def _search_request(url: str) -> Request:
+    """Desktop Chrome UA for DuckDuckGo HTML search. Wiki page GET stays BattleBuddy."""
+    return Request(
+        url,
+        method="GET",
+        headers={
+            "User-Agent": _SEARCH_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    )
+
+
 def _get_html(url: str) -> str | None:
     target = normalize_url(url)
     if not target:
         return None
     try:
-        opener = build_opener(PublicRedirectHandler)
-        with opener.open(_request(target), timeout=_TIMEOUT) as resp:
+        opener = build_opener()
+        with opener.open(_search_request(target), timeout=_TIMEOUT) as resp:
             blob = resp.read(1_500_000)
     except (URLError, TimeoutError, OSError, ValueError):
         return None
