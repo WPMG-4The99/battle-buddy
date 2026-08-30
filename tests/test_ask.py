@@ -9,11 +9,37 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from battlebuddy.databank.clean import strip_markup
+from battlebuddy.databank.clean import recipe_sentence, start_path_sentence, strip_markup
+from battlebuddy.databank.reason import present_ask
 from battlebuddy.databank.search import ask_pages, content_terms, query_terms, search_folder
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt
 from battlebuddy.ui import app as ui_app
+
+_BURGAGE_BODY = (
+    "Indicates the possibility of adding a backyard extension. "
+    "Burgage costs 2 timber. One backyard extension. "
+    "Level 1 enables T1 backyards. Level 2 enables T2 backyard extensions. "
+    "Level 2 upgrade cost: 2 timber + 8 planks. "
+    "Tier 2 backyards turn the family into artisans. "
+    "Tier 2 Backyards Backyard extension Cost Produces Perks/Affinities "
+    "Requires Maintenance Bakery 6 Planks 10 RW 1 Wheat Flour into 4 Wheat Bread "
+    "or 1 Rye Flour into 2 Rye Bread -0.2 Weiden Hinterlanders Blacksmith 8 Planks "
+    "25 RW 1 Iron Slab and 1 Plank into 2 Spears or 2 Iron Slabs into 1 Sidearm "
+    "or 1 Iron Slab and 1 Plank into 1 Polearms or 1 Iron Slab into 1 Tool or "
+    "1 Iron Slab into 1 Iron Part +0.2 Smiths of Passau -0.2 Weiden Hinterlanders "
+    "Brewery 6 Planks 10 RW 1 Malt into 2 Ale."
+)
+_MILITARY_BODY = (
+    "Spears: obtained from Planks and Iron Slabs at the "
+    "Blacksmith's Workshop backyard extension."
+)
+_PATCH_BODY = (
+    "Changed order of goods produced for Blacksmith and Joiner to list Spears "
+    "and Large shields first. Start of the production notes for this hotfix."
+)
+_START_Q = "how do I start spear production?"
+_START_Q_BARE = "how do I start spear production"
 
 
 class SearchFolderTest(unittest.TestCase):
@@ -366,6 +392,109 @@ class SearchFolderTest(unittest.TestCase):
         self.assertNotIn("No match on the wiki", result.output())
         self.assertNotIn("ale", result.output().lower())
         self.assertNotIn("hildebolt", result.output().lower())
+
+
+class StartPathAskTest(unittest.TestCase):
+    def _store(self) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/0.8.050",
+            "0.8.050 - Main - Manor Lords Official Wiki",
+            _PATCH_BODY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Military_items",
+            "Military items - Manor Lords Official Wiki",
+            _MILITARY_BODY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            _BURGAGE_BODY,
+        )
+        return store
+
+    def _assert_start_path(self, text: str) -> None:
+        low = text.lower()
+        self.assertIn("burgage", low)
+        self.assertIn("blacksmith", low)
+        self.assertIn("iron slab", low)
+        self.assertIn("plank", low)
+        self.assertIn("spear", low)
+        self.assertNotIn("0.8.050", text)
+        self.assertNotIn("Changed order of goods", text)
+        self.assertLessEqual(len([part for part in text.replace("?", ".").split(".") if part.strip()]), 2)
+
+    def test_start_spear_production_compiles_path_not_patch_notes(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "manor-lords", _START_Q)
+        self.assertTrue(result.hits)
+        self.assertIn("burgage", result.hits[0].title.lower())
+        self.assertNotIn("0.8.050", result.hits[0].title)
+        self._assert_start_path(result.output())
+        shown = present_ask(result, _START_Q, store, "manor-lords", ports=(1,))
+        self._assert_start_path(shown)
+
+    def test_start_spear_production_without_question_mark(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "Manor Lords", _START_Q_BARE)
+        self._assert_start_path(result.output())
+        shown = present_ask(result, _START_Q_BARE, store, "Manor Lords", ports=(1,))
+        self._assert_start_path(shown)
+
+    def test_spear_production_still_returns_blacksmith_recipe(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "Manor Lords", "spear production")
+        out = result.output()
+        low = out.lower()
+        self.assertIn("blacksmith", low)
+        self.assertIn("iron slab", low)
+        self.assertIn("plank", low)
+        self.assertIn("spear", low)
+        self.assertNotIn("0.8.050", out)
+        self.assertNotIn("Changed order of goods", out)
+        self.assertTrue(
+            "blacksmith: 1 iron slab and 1 plank into 2 spears" in low
+            or "obtained from planks and iron slabs" in low
+        )
+
+    def test_patch_notes_do_not_outrank_burgage_in_tmp_folder(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "Manor Lords", _START_Q)
+        titles = [hit.title for hit in result.hits]
+        self.assertTrue(titles)
+        self.assertIn("burgage", titles[0].lower())
+        self.assertFalse(titles[0].startswith("0.8.050"))
+        for hit in result.hits:
+            if "0.8.050" in hit.title:
+                burgage = next(item for item in result.hits if "burgage" in item.title.lower())
+                self.assertGreater(burgage.score, hit.score)
+
+    def test_recipe_sentence_skips_backyard_definition(self) -> None:
+        line = recipe_sentence(_BURGAGE_BODY, ["spear"])
+        self.assertIsNotNone(line)
+        assert line is not None
+        self.assertIn("Blacksmith", line)
+        self.assertIn("Iron Slab", line)
+        self.assertIn("Plank", line)
+        self.assertIn("Spears", line)
+        self.assertNotIn("Indicates", line)
+        self.assertNotIn("possibility", line.lower())
+        path = start_path_sentence(
+            "Burgage plot - Manor Lords Official Wiki\n" + _BURGAGE_BODY,
+            ["spear"],
+        )
+        self.assertIsNotNone(path)
+        assert path is not None
+        self._assert_start_path(path)
+        self.assertIn("8 planks", path.lower())
+        self.assertIn("25 regional wealth", path.lower())
+        self.assertIn("level 2", path.lower())
 
 
 class HuntFailureTest(unittest.TestCase):
