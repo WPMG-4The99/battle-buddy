@@ -13,8 +13,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from battlebuddy.databank.clean import is_patch_title, strip_markup
-from battlebuddy.databank.search import AskResult, compile_ask_line, page_files
+from battlebuddy.databank.clean import is_patch_title, recipe_sentence, strip_markup
+from battlebuddy.databank.search import (
+    AskResult,
+    compile_ask_line,
+    content_terms,
+    page_files,
+    query_terms,
+)
 from battlebuddy.databank.store import DatabankStore
 
 # Probe Hermes/Ollama, LM Studio, generic llama.cpp, then the bundled CPU server.
@@ -51,10 +57,12 @@ def present_ask(
     ports: tuple[int, ...] | None = None,
 ) -> str:
     """Start-path or recipe extract first. Local LLM only when extract is empty."""
+    cleaned = result.output()
+    if _is_ask_extract(cleaned, question):
+        return cleaned
     extracted = compile_ask_line(question, _ask_texts(result, store, game))
     if extracted:
         return extracted
-    cleaned = result.output()
     if store is None or not (question or "").strip() or not result.hits:
         return cleaned
     page = top_page_text(store, game, result)
@@ -64,19 +72,31 @@ def present_ask(
     return answered or cleaned
 
 
+def _is_ask_extract(text: str, question: str) -> bool:
+    """True when output() already compiled a start path or recipe line."""
+    blob = (text or "").strip()
+    if not blob:
+        return False
+    low = blob.lower()
+    if "upgrade a burgage plot to level" in low and "into" in low:
+        return True
+    nouns = content_terms(query_terms(question))
+    return recipe_sentence(blob, nouns) is not None
+
+
 def _ask_texts(
     result: AskResult,
     store: DatabankStore | None,
     game: str | None,
 ) -> list[str]:
-    """Full saved pages when we have a store. Skip patch-note titles."""
+    """Full saved pages when we have a store. Skip patch-note titles. No cap."""
     texts: list[str] = []
     for hit in result.hits:
         if is_patch_title(hit.title):
             continue
         body = ""
         if store is not None:
-            body = _page_text_for_title(store, game, hit.title)
+            body = _page_text_for_title(store, game, hit.title, cap=None)
         texts.append(body or f"{hit.title}\n{strip_markup(hit.snippet)}")
     return texts
 
@@ -101,7 +121,7 @@ def _page_text_for_title(
     store: DatabankStore,
     game: str | None,
     title: str,
-    cap: int = PAGE_CAP,
+    cap: int | None = PAGE_CAP,
 ) -> str:
     """Saved page body for a hit title, markup stripped. Empty if missing."""
     wanted = (title or "").strip()
@@ -126,7 +146,10 @@ def _page_text_for_title(
                 continue
             parts = body.split("\n", 2)
             text = parts[2] if len(parts) > 2 else body
-            return f"{first}\n{strip_markup(text)[:cap]}"
+            cleaned = strip_markup(text)
+            if cap is not None:
+                cleaned = cleaned[:cap]
+            return f"{first}\n{cleaned}"
     return ""
 
 
