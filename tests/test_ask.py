@@ -1071,5 +1071,79 @@ class TaxHowToAskTest(unittest.TestCase):
         self.assertNotIn("byggnader", low)
 
 
+class DuplicateBuildingsTaxTest(unittest.TestCase):
+    """Real-disk shape: two Buildings titles. Short infobox sorts first."""
+
+    _TITLE = "Buildings - Manor Lords Official Wiki"
+    _SHORT = (
+        "Buildings infobox. Burgage plot. Marketplace. Granary. "
+        "Region cost timber. No manor paragraph here."
+    )
+    _LONG = (
+        "Burgage plot. Marketplace. "
+        "Manor costs 5 Timber, 20 Planks and 25 Stone. Once constructed it grants 250 "
+        "Influence, rises the Administration level by 1 and enables taxing people. "
+        "It requires Fuel resources. Only one Manor can be constructed per region."
+    )
+    _DEV = "The Annual Royal Tax comes from here, if enabled in game setup."
+
+    def _store(self) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        folder = store.folder("Manor Lords")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "111_buildings.txt").write_text(
+            f"{self._TITLE}\nhttps://wiki.hoodedhorse.com/Manor_Lords/Buildings\n\n{self._SHORT}\n",
+            encoding="utf-8",
+        )
+        (folder / "999_buildings.txt").write_text(
+            f"{self._TITLE}\nhttps://wiki.hoodedhorse.com/Manor_Lords/Buildings/full\n\n{self._LONG}\n",
+            encoding="utf-8",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Development",
+            "Development - Manor Lords Official Wiki",
+            self._DEV,
+        )
+        return store
+
+    def test_present_ask_uses_long_buildings_not_if_enabled(self) -> None:
+        store = self._store()
+        result = ask_or_hunt(store, "Manor Lords", _TAX_Q)
+        self.assertTrue(result.hits)
+        shown = present_ask(result, _TAX_Q, store, "Manor Lords", ports=(1,))
+        low = shown.lower()
+        self.assertIn("manor", low)
+        self.assertIn("5", shown)
+        self.assertIn("timber", low)
+        self.assertIn("20", shown)
+        self.assertIn("plank", low)
+        self.assertIn("25", shown)
+        self.assertIn("stone", low)
+        self.assertIn("enables taxing", low)
+        self.assertNotIn("annual royal tax comes from here", low)
+        self.assertNotIn("if enabled in game setup", low)
+        self.assertNotIn("Can't find that", shown)
+
+    def test_page_text_picks_snippet_or_longest(self) -> None:
+        from battlebuddy.databank.search import page_text_for_title
+
+        store = self._store()
+        snippet = (
+            "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people."
+        )
+        picked = page_text_for_title(
+            store,
+            "Manor Lords",
+            self._TITLE,
+            snippet=snippet,
+        )
+        self.assertIn("enables taxing people", picked.lower())
+        self.assertIn("5 timber", picked.lower())
+        self.assertNotIn("no manor paragraph here", picked.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

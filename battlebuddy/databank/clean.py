@@ -31,7 +31,8 @@ _HOWTO_WORDS = {
     "tax",
     "taxing",
 }
-_ENABLE_WORDS = {"allow", "allows", "enable", "enabled", "enables"}
+_ENABLE_WORDS = {"allow", "allows", "enable", "enables", "unlock", "unlocks"}
+_PASSIVE_ENABLED = re.compile(r"\bif\s+enabled\b", re.IGNORECASE)
 _REQUIRE_WORDS = {"need", "needed", "needs", "require", "required", "requires"}
 _ACTION_WORDS = {
     "build",
@@ -223,7 +224,7 @@ def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str 
             if not _has_nouns(sent, needed):
                 continue
             words = set(_cue_words(sent))
-            if enable is None and words & _ENABLE_WORDS:
+            if enable is None and _is_enable_sentence(sent, needed):
                 enable = sent.strip()
                 prior = sents[index - 1].strip() if index > 0 else ""
                 if prior and _is_cost_sentence(prior):
@@ -457,6 +458,20 @@ def _term_in(bag: set[str], term: str) -> bool:
 def _has_nouns(text: str, nouns: list[str]) -> bool:
     bag = set(_cue_words(text))
     return any(term_in(bag, noun) for noun in nouns)
+
+
+def _is_enable_sentence(sent: str, nouns: list[str]) -> bool:
+    """enables taxing / allows X. Not 'if enabled in game setup'."""
+    if _PASSIVE_ENABLED.search(sent or ""):
+        return False
+    words = _cue_words(sent)
+    for index, word in enumerate(words):
+        if word not in _ENABLE_WORDS:
+            continue
+        after = set(words[index + 1 :])
+        if any(term_in(after, noun) for noun in nouns):
+            return True
+    return False
 
 
 def _is_cost_sentence(sent: str) -> bool:
