@@ -419,11 +419,11 @@ class HuntFailureTest(unittest.TestCase):
 class AskUiSourceTest(unittest.TestCase):
     def test_ask_box_and_local_search_hooks(self) -> None:
         source = Path(ui_app.__file__).read_text(encoding="utf-8")
-        self.assertIn('text="ASK"', source)
-        self.assertIn('"ASK YOUR QUESTION"', source)
-        self.assertIn('"REMINDER"', source)
+        self.assertIn('text="Submit"', source)
+        self.assertIn("Wiki or question", source)
+        self.assertIn('"Reminder"', source)
         self.assertIn("Lock a time reminder here", source)
-        self.assertIn("Paste a wiki URL here", source)
+        self.assertIn("Paste a wiki link or ask a game question", source)
         self.assertIn("ask_pages", source)
         self.assertIn("ask_or_hunt", source)
         self.assertIn("should_hunt", source)
@@ -444,7 +444,10 @@ class AskUiSourceTest(unittest.TestCase):
         hunt_done = source.split("def _ask_hunt_done")[1].split("def ")[0]
         self.assertNotIn("No match on the wiki. Nothing invented.", hunt_done)
         self.assertIn('text="SUBMIT"', source)
-        self.assertIn('text="ADD / FETCH"', source)
+        self.assertIn("looks_like_public_url", source)
+        self.assertIn("self._submit_query", source)
+        self.assertNotIn('text="ADD / FETCH"', source)
+        self.assertNotIn('"ASK YOUR QUESTION"', source)
         self.assertIn("self._tick_clocks()", source)
         self.assertNotIn("openai", source.lower())
         self.assertNotIn("anthropic", source.lower())
