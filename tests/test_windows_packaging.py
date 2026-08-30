@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsPackagingTest(unittest.TestCase):
-    def test_version_is_not_one_oh(self) -> None:
-        self.assertEqual(__version__, "0.3.0")
+    def test_version_is_one_oh(self) -> None:
+        self.assertEqual(__version__, "1.0.0")
 
     def test_entry_launches_ui_same_as_module(self) -> None:
         entry = ROOT / "battlebuddy" / "win_entry.py"
