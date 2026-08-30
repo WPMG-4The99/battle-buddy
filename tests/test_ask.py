@@ -308,6 +308,17 @@ class SearchFolderTest(unittest.TestCase):
         self.assertEqual(kill, ["kill", "another", "ruler"])
         self.assertEqual(content_terms(kill), ["kill", "ruler"])
 
+    def test_livestock_into_plots_are_weak_burgage_is_not(self) -> None:
+        terms = query_terms("How do I get livestock into my burgage plots?")
+        self.assertEqual(terms, ["get", "livestock", "into", "burgage", "plots"])
+        self.assertEqual(content_terms(terms), ["livestock", "burgage"])
+        self.assertNotIn("into", content_terms(terms))
+        self.assertNotIn("plots", content_terms(terms))
+        self.assertNotIn("plot", content_terms(terms))
+        self.assertIn("livestock", content_terms(terms))
+        self.assertIn("burgage", content_terms(terms))
+        self.assertNotIn("livestock", {"into", "plot", "plots"})
+
     def test_strip_markup_drops_wiki_bold_italic_and_list_stars(self) -> None:
         dirty = "* ''' Spears ''': obtained from Planks and Iron Slabs"
         cleaned = strip_markup(dirty)
@@ -479,6 +490,11 @@ class StartPathAskTest(unittest.TestCase):
         self._assert_start_path(result.output())
         shown = present_ask(result, _START_Q, store, "manor-lords", ports=(1,))
         self._assert_start_path(shown)
+        self.assertEqual(
+            shown,
+            "Upgrade a burgage plot to level 2 and add the Blacksmith backyard "
+            "(8 planks, 25 regional wealth). Blacksmith: 1 Iron Slab and 1 Plank into 2 Spears.",
+        )
 
     def test_start_spear_production_without_question_mark(self) -> None:
         store = self._store()
@@ -1055,6 +1071,10 @@ class TaxHowToAskTest(unittest.TestCase):
         self.assertTrue("regional wealth" in low or "treasury" in low)
         self._assert_not_scraps(shown)
         self.assertEqual(shown, result.output())
+        self.assertIn(
+            "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people.",
+            shown,
+        )
 
     def test_tax_without_manor_paragraph_is_a_miss(self) -> None:
         store = self._store(manor=False)
@@ -1249,6 +1269,12 @@ class DefeatRulerAskTest(unittest.TestCase):
         self.assertEqual(shown, result.output())
         self.assertNotIn("Can't find that", shown)
         self.assertNotIn("Nothing invented", shown)
+        self.assertIn(
+            "Claim regions with influence and establish a Settler’s Camp using funds "
+            "from your Treasury. It costs 1,000 influence to claim an unclaimed region, "
+            "2,000 to claim a region owned by the AI lord.",
+            shown,
+        )
 
     def test_defeat_ruler_compiles_claim_and_influence(self) -> None:
         store = self._store()
@@ -1282,6 +1308,190 @@ class DefeatRulerAskTest(unittest.TestCase):
             self.assertNotIn("annual royal tax comes from here", low)
             self.assertNotIn("blacksmith", low)
             self.assertNotIn("family occupies", low)
+
+
+_LIVESTOCK_Q = "How do I get livestock into my burgage plots?"
+_BURGAGE_LIVESTOCK = (
+    "This allows multiple plots to be placed at once and for different shapes to be created. "
+    "Burgage plots use the flexible plots system and require two timber per building. "
+    "Tier 1 Backyards Backyard extension Cost Produces "
+    "Vegetable Garden 2 Planks "
+    "Animal Pen 4 Planks 25 RW for 5 "
+    "Goats produce Milk, Chevon and Hides. "
+    "Pigs produce Pork. "
+    "Level 2 enables T2 backyard extensions. "
+    "Blacksmith 8 Planks 25 RW 1 Iron Slab and 1 Plank into 2 Spears."
+)
+_BUILDINGS_LIVESTOCK = (
+    "Livestock trading post 2 timber Allows for the import and export of animals "
+    "with tradepoints and your other regions. "
+    "Sheep farm. Sheep must first be imported via the Livestock trader. "
+    "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people."
+)
+_FAQ_LIVESTOCK = (
+    "The Livestock Trader comes with its own capacity to house Sheep. "
+    "A family occupies a burgage plot."
+)
+
+
+class LivestockHowToAskTest(unittest.TestCase):
+    def _store(self, *, pen: bool = True, trader: bool = True) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        burgage = _BURGAGE_LIVESTOCK if pen else (
+            "This allows multiple plots to be placed at once and for different shapes "
+            "to be created. Burgage plots use the flexible plots system and require "
+            "two timber per building. "
+            "Blacksmith 8 Planks 25 RW 1 Iron Slab and 1 Plank into 2 Spears."
+        )
+        buildings = _BUILDINGS_LIVESTOCK if trader else (
+            "Manor costs 5 Timber, 20 Planks and 25 Stone and enables taxing people. "
+            "Granary stores food."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            burgage,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Buildings",
+            "Buildings - Manor Lords Official Wiki",
+            buildings,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/FAQ",
+            "FAQ - Manor Lords Official Wiki",
+            _FAQ_LIVESTOCK,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Family",
+            "Family - Manor Lords Official Wiki",
+            _FAMILY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Fishermans_hut",
+            "Fisherman's hut - Manor Lords Official Wiki",
+            _FISHERMAN,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Development",
+            "Development - Manor Lords Official Wiki",
+            _DEVELOPMENT,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/0.8.050",
+            "0.8.050 - Main - Manor Lords Official Wiki",
+            "Changed tax tooltip. Start of the production notes for this hotfix.",
+        )
+        return store
+
+    def _assert_livestock_answer(self, text: str, *, trader: bool = True) -> None:
+        low = text.lower()
+        self.assertIn("animal pen", low)
+        self.assertIn("backyard", low)
+        self.assertIn("4", text)
+        self.assertIn("plank", low)
+        self.assertIn("25", text)
+        self.assertTrue("regional wealth" in low or " rw" in f" {low}")
+        self.assertTrue("goat" in low or "pig" in low)
+        if trader:
+            self.assertIn("livestock", low)
+            self.assertTrue("trading post" in low or "trader" in low)
+            self.assertIn("import", low)
+        self.assertNotIn("flexible plots", low)
+        self.assertNotIn("two timber per building", low)
+        self.assertNotIn("allows multiple plots", low)
+        self.assertNotIn("fisherman", low)
+        self.assertNotIn("workplaces", low)
+        self.assertNotIn("annual royal tax", low)
+        self.assertNotIn("blacksmith", low)
+        self.assertNotIn("into 2 spears", low)
+        self.assertLessEqual(
+            len([part for part in text.replace("?", ".").split(".") if part.strip()]),
+            2,
+        )
+
+    def _assert_compiles(self, store: DatabankStore, question: str) -> None:
+        result = ask_or_hunt(store, "Manor Lords", question)
+        shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+        self._assert_livestock_answer(shown)
+        self.assertNotIn("Can't find that", shown)
+        self.assertNotIn("Nothing invented", shown)
+
+    def test_livestock_burgage_compiles_pen_and_import(self) -> None:
+        store = self._store()
+        self._assert_compiles(store, _LIVESTOCK_Q)
+        self._assert_compiles(store, _LIVESTOCK_Q.rstrip("?"))
+
+    def test_livestock_spoken_line_is_pen_then_import(self) -> None:
+        store = self._store()
+        shown = present_ask(
+            ask_or_hunt(store, "Manor Lords", _LIVESTOCK_Q),
+            _LIVESTOCK_Q,
+            store,
+            "Manor Lords",
+            ports=(1,),
+        )
+        self.assertIn(
+            "Add an Animal Pen backyard to the burgage (4 planks, 25 regional wealth).",
+            shown,
+        )
+        self.assertIn("Import goats or pigs at the Livestock trading post.", shown)
+
+    def test_without_animal_pen_is_a_miss_not_burgage_junk(self) -> None:
+        store = self._store(pen=False)
+        store.save_page(
+            "Manor Lords",
+            "http://127.0.0.1:9/wiki/",
+            "Manor Lords Wiki",
+            "Welcome.",
+        )
+        for question in (_LIVESTOCK_Q, _LIVESTOCK_Q.rstrip("?")):
+            result = ask_or_hunt(store, "Manor Lords", question)
+            shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+            low = shown.lower()
+            self.assertTrue(
+                "can't find that" in low
+                or "nothing invented" in low
+                or "restate" in low
+            )
+            self.assertNotIn("flexible plots", low)
+            self.assertNotIn("two timber per building", low)
+            self.assertNotIn("allows multiple plots", low)
+            self.assertNotIn("fisherman", low)
+            self.assertNotIn("workplaces", low)
+            self.assertNotIn("annual royal tax", low)
+            self.assertNotIn("blacksmith", low)
+
+    def test_without_pen_and_trader_is_a_miss(self) -> None:
+        store = self._store(pen=False, trader=False)
+        store.save_page(
+            "Manor Lords",
+            "http://127.0.0.1:9/wiki/",
+            "Manor Lords Wiki",
+            "Welcome.",
+        )
+        shown = present_ask(
+            ask_or_hunt(store, "Manor Lords", _LIVESTOCK_Q),
+            _LIVESTOCK_Q,
+            store,
+            "Manor Lords",
+            ports=(1,),
+        )
+        low = shown.lower()
+        self.assertTrue(
+            "can't find that" in low or "nothing invented" in low or "restate" in low
+        )
+        self.assertNotIn("flexible plots", low)
+        self.assertNotIn("allows multiple plots", low)
 
 
 if __name__ == "__main__":

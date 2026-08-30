@@ -16,8 +16,10 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from battlebuddy.databank.clean import (
     compile_claim_line,
     compile_howto_line,
+    compile_livestock_line,
     is_claim_question,
     is_howto_question,
+    is_livestock_question,
     recipe_sentence,
     strip_markup,
 )
@@ -28,6 +30,7 @@ from battlebuddy.databank.search import (
     content_terms,
     page_text_for_title,
     page_texts_for_hits,
+    livestock_compile_texts,
     query_terms,
 )
 from battlebuddy.databank.store import DatabankStore
@@ -66,6 +69,16 @@ def present_ask(
     ports: tuple[int, ...] | None = None,
 ) -> str:
     """If output() already compiled, keep it. How-to miss is never LLM."""
+    if is_livestock_question(question):
+        extracted = compile_ask_line(
+            question, livestock_compile_texts(store, game, result)
+        )
+        if extracted:
+            return extracted
+        cleaned = result.output()
+        if is_howto_question(question) and result.hits:
+            return _HOWTO_MISS
+        return cleaned
     cleaned = result.output()
     if _is_ask_extract(cleaned, question):
         return cleaned
@@ -101,6 +114,8 @@ def _is_ask_extract(text: str, question: str) -> bool:
     if is_howto_question(question) and compile_howto_line([blob], nouns):
         return True
     if is_claim_question(question) and compile_claim_line([blob]):
+        return True
+    if is_livestock_question(question) and compile_livestock_line([blob]):
         return True
     return False
 

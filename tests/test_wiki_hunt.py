@@ -108,6 +108,20 @@ class RankVariantTest(unittest.TestCase):
         self.assertNotIn("/FAQ", spear)
         self.assertNotIn("Game_setup", spear)
 
+    def test_livestock_title_fallbacks_when_spoken_animal_words(self) -> None:
+        home = KNOWN_WIKIS["manor lords"]
+        urls = fallback_title_urls(home, ["livestock", "burgage"])
+        joined = " ".join(urls)
+        self.assertIn("Burgage_plot", joined)
+        self.assertIn("/Buildings", joined)
+        self.assertIn("Livestock_trading_post", joined)
+        goat = " ".join(fallback_title_urls(home, ["goat", "pig"]))
+        self.assertIn("Burgage_plot", goat)
+        self.assertIn("Livestock_trading_post", goat)
+        spear = " ".join(fallback_title_urls(home, ["spear"]))
+        self.assertNotIn("Burgage_plot", spear)
+        self.assertNotIn("Livestock_trading_post", spear)
+
     def test_military_items_outranks_translation_and_approval(self) -> None:
         hits = [
             SearchHit("Approval", "Spear Militia unlocks with an Approval perk.", "https://w/Approval"),
