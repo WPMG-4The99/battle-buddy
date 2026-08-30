@@ -17,6 +17,40 @@ _CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _MAX_RECIPE_WORDS = 30
 _START_WORDS = {"start", "begin", "setup"}
 _PROD_WORDS = {"production", "produce", "producing"}
+_HOWTO_WORDS = {
+    "craft",
+    "how",
+    "make",
+    "obtain",
+    "produce",
+    "producing",
+    "production",
+    "start",
+    "begin",
+    "setup",
+    "tax",
+    "taxing",
+}
+_ENABLE_WORDS = {"allow", "allows", "enable", "enabled", "enables"}
+_REQUIRE_WORDS = {"need", "needed", "needs", "require", "required", "requires"}
+_ACTION_WORDS = {
+    "build",
+    "built",
+    "construct",
+    "constructed",
+    "craft",
+    "make",
+    "obtain",
+    "obtained",
+    "upgrade",
+}
+_STEM_SUFFIXES = ("ation", "ing", "es", "ed", "s")
+_COST_MARK = re.compile(r"\bcosts?\s+\d+\s+[A-Za-z]+", re.IGNORECASE)
+_ENABLE_CLAUSE = re.compile(
+    r"\b(?:and\s+)?(?:enables?|allows?|unlocks?)\s+.+\Z",
+    re.IGNORECASE,
+)
+_MAX_HOWTO_WORDS = 40
 _PATCH_MARKERS = (
     "patch note",
     "patch notes",
@@ -109,6 +143,14 @@ def is_start_question(question: str) -> bool:
     return started and bool(words & _PROD_WORDS)
 
 
+def is_howto_question(question: str) -> bool:
+    """how / start / tax / production. Wispr '?' is optional."""
+    words = set(_WORD.findall((question or "").lower()))
+    if "set" in words and "up" in words:
+        return True
+    return bool(words & _HOWTO_WORDS)
+
+
 def recipe_sentence(text: str, nouns: list[str] | None = None) -> str | None:
     """Short recipe line. Table produce first, then a capped prose sentence."""
     cleaned = strip_markup(text)
@@ -161,6 +203,63 @@ def start_path_sentence(text: str, nouns: list[str] | None = None) -> str | None
     if not _short_enough(line):
         return None
     return line
+
+
+def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str | None:
+    """Enabling building + optional requirement. Extract, do not invent."""
+    needed = [item.lower() for item in (nouns or []) if item]
+    if not needed:
+        return None
+    enable: str | None = None
+    cost: str | None = None
+    action: str | None = None
+    requires: list[str] = []
+    for text in texts:
+        cleaned = strip_markup(text)
+        if not cleaned:
+            continue
+        sents = _sentences(cleaned)
+        for index, sent in enumerate(sents):
+            if not _has_nouns(sent, needed):
+                continue
+            words = set(_cue_words(sent))
+            if enable is None and words & _ENABLE_WORDS:
+                enable = sent.strip()
+                prior = sents[index - 1].strip() if index > 0 else ""
+                if prior and _is_cost_sentence(prior):
+                    cost = prior
+            elif _is_require_sentence(sent, needed):
+                requires.append(sent.strip())
+            elif (
+                action is None
+                and words & _ACTION_WORDS
+                and _sentence_count(sent) == 1
+                and _howto_short(sent)
+            ):
+                action = sent.strip()
+    if enable is None:
+        return action if action and _howto_short(action) else None
+    first = _stitch_cost_enable(cost, enable) if cost else enable
+    second = _pick_require(requires)
+    if second and second.lower() not in first.lower() and _sentence_count(first) < 2:
+        line = f"{first} {second}"
+        if _sentence_count(line) <= 2 and _howto_short(line):
+            return line
+    if _sentence_count(first) <= 2 and _howto_short(first):
+        return first
+    return None
+
+
+def page_require_line(text: str, nouns: list[str] | None = None) -> str | None:
+    """Requirement sentence with the noun. Used as a snippet, not a full answer."""
+    needed = [item.lower() for item in (nouns or []) if item]
+    if not needed:
+        return None
+    found: list[str] = []
+    for sent in _sentences(strip_markup(text)):
+        if _is_require_sentence(sent, needed):
+            found.append(sent.strip())
+    return _pick_require(found)
 
 
 def _table_recipe(text: str, nouns: list[str]) -> str | None:
@@ -328,9 +427,87 @@ def _cue_words(blob: str) -> list[str]:
     return _WORD.findall(text)
 
 
+def term_in(bag: set[str], term: str) -> bool:
+    """spear/spears. tax/taxing/taxation. Do not treat people as tax."""
+    raw = (term or "").lower()
+    if not raw:
+        return False
+    if raw in bag:
+        return True
+    if raw.endswith("s") and len(raw) > 1 and raw[:-1] in bag:
+        return True
+    if f"{raw}s" in bag:
+        return True
+    for suffix in _STEM_SUFFIXES:
+        if len(raw) > len(suffix) + 2 and raw.endswith(suffix):
+            stem = raw[: -len(suffix)]
+            if stem in bag:
+                return True
+            if any(f"{stem}{other}" in bag for other in _STEM_SUFFIXES):
+                return True
+        if f"{raw}{suffix}" in bag:
+            return True
+    return False
+
+
 def _term_in(bag: set[str], term: str) -> bool:
-    if term in bag:
+    return term_in(bag, term)
+
+
+def _has_nouns(text: str, nouns: list[str]) -> bool:
+    bag = set(_cue_words(text))
+    return any(term_in(bag, noun) for noun in nouns)
+
+
+def _is_cost_sentence(sent: str) -> bool:
+    if not _COST_MARK.search(sent or ""):
+        return False
+    return 0 < len(sent.split()) <= 20
+
+
+def _is_require_sentence(sent: str, nouns: list[str]) -> bool:
+    if not _has_nouns(sent, nouns):
+        return False
+    words = set(_cue_words(sent))
+    if words & _REQUIRE_WORDS:
         return True
-    if term.endswith("s") and len(term) > 1 and term[:-1] in bag:
-        return True
-    return f"{term}s" in bag
+    low = (sent or "").lower()
+    return "no tax income" in low or "no regional wealth" in low
+
+
+def _pick_require(candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+
+    def score(sent: str) -> int:
+        low = sent.lower()
+        n = 0
+        if "treasury" in low:
+            n += 2
+        if "regional wealth" in low:
+            n += 2
+        if set(_cue_words(sent)) & _REQUIRE_WORDS:
+            n += 1
+        return n
+
+    return max(candidates, key=score)
+
+
+def _stitch_cost_enable(cost: str, enable: str) -> str:
+    """Join the cost row to the enables-clause. No new facts."""
+    clause = _ENABLE_CLAUSE.search((enable or "").strip())
+    if not clause:
+        return f"{cost} {enable}".strip()
+    bit = re.sub(r"^(?:and\s+)", "", clause.group(0).strip(), flags=re.IGNORECASE)
+    head = (cost or "").rstrip(".!? ").strip()
+    if not head or not bit:
+        return f"{cost} {enable}".strip()
+    return f"{head} and {bit}".rstrip(".!? ") + "."
+
+
+def _howto_short(text: str) -> bool:
+    return 0 < len((text or "").split()) <= _MAX_HOWTO_WORDS
+
+
+def _sentence_count(text: str) -> int:
+    return len([part for part in re.split(r"[.!?]+", text or "") if part.strip()])

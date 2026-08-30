@@ -7,13 +7,15 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlparse
 
-from battlebuddy.databank.clean import is_patch_title, strip_markup
+from battlebuddy.databank.clean import is_howto_question, is_patch_title, strip_markup
 from battlebuddy.databank.fetch import fetch_page, normalize_url
 from battlebuddy.databank.search import (
     AskResult,
     Hit,
     ask_pages,
+    compile_ask_line,
     content_terms,
+    page_texts_for_hits,
     query_terms,
 )
 from battlebuddy.databank.store import DatabankStore, Source
@@ -37,8 +39,12 @@ _LANG_SUFFIX = (
 # ASK-snippet how-to coverage only. Lone "blacksmith" or "produced" is not a recipe.
 _STRONG_CRAFT_WORDS = ("obtained",)
 _STRONG_CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
-_HOWTO = {"how", "start", "produce", "production", "make", "craft", "obtain"}
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
+_TAX_FALLBACKS = ("Buildings", "FAQ", "Manor")
+_TRANSLATED_TITLES = {
+    "byggnad": "building",
+    "byggnader": "buildings",
+}
 _WORD = re.compile(r"[a-z0-9]+")
 _KNOWN_HOSTS = (
     "wiki.hoodedhorse.com",
@@ -174,7 +180,7 @@ def search_variants(terms: list[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for term in terms:
-        for item in (term, _pluralize(term), _singularize(term)):
+        for item in (term, _pluralize(term), _singularize(term), _destem(term)):
             if not item or item in seen:
                 continue
             seen.add(item)
@@ -205,7 +211,10 @@ def local_covers(
     """How-to coverage is noun + strong cue on the ASK snippet. Not the full page dump."""
     if not result.hits:
         return False
-    if not _is_howto(question):
+    if not is_howto_question(question):
+        return True
+    texts = page_texts_for_hits(store, game, result)
+    if compile_ask_line(question, texts):
         return True
     nouns = search_variants(content_terms(query_terms(question)))
     best = result.hits[0]
@@ -227,6 +236,7 @@ def rank_ask_result(result: AskResult, question: str) -> AskResult:
         else:
             weak.append(hit)
     kept = strong if strong else weak
+    kept = _drop_translated_duplicates(kept)
     kept.sort(key=lambda item: _ask_hit_score(item, nouns), reverse=True)
     return AskResult(
         ok=result.ok,
@@ -274,9 +284,12 @@ def hunt_and_ask(store: DatabankStore, game: str | None, question: str) -> AskRe
                 existing.add(fetched.url)
     found = rank_ask_result(ask_pages(store, game, question), question)
     led = _lead_with_search_recipe(found, collected, nouns)
-    if led.hits:
+    texts = page_texts_for_hits(store, game, led)
+    if compile_ask_line(question, texts):
         return led
-    return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, hits=(), question=question)
+    if is_howto_question(question) or not led.hits:
+        return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, hits=(), question=question)
+    return led
 
 
 def search_wiki_urls(home: WikiHome, terms: list[str]) -> list[str]:
@@ -381,8 +394,14 @@ def fallback_title_urls(home: WikiHome, terms: list[str]) -> list[str]:
     """api.php missing: try Title-case article paths on the same wiki only."""
     urls: list[str] = []
     seen: set[str] = set()
-    for term in terms:
-        title = term[:1].upper() + term[1:]
+    extras: list[str] = []
+    bag = {item.lower() for item in terms}
+    if bag & {"tax", "taxes", "taxing", "taxation"}:
+        extras.extend(_TAX_FALLBACKS)
+    for term in list(terms) + extras:
+        title = term[:1].upper() + term[1:] if term[:1].islower() else term
+        if term in _TAX_FALLBACKS:
+            title = term
         built = article_url(home, title)
         if built is None or not same_origin(built, home) or built in seen:
             continue
@@ -459,6 +478,13 @@ def _search_hit_score(hit: SearchHit, nouns: list[str]) -> int:
         score -= 80
     if _has_lang_suffix(hit.title) or _has_lang_suffix(hit.url):
         score -= 20
+    if _title_head(hit.title) in _TRANSLATED_TITLES:
+        score -= 25
+    host = (urlparse(hit.url).hostname or "").lower()
+    if host.endswith("fandom.com"):
+        score -= 15
+    if host.endswith("hoodedhorse.com"):
+        score += 10
     if "militia" in blob and not has_craft:
         score -= 15
     if "approval" in title and not has_craft:
@@ -473,6 +499,12 @@ def _ask_hit_score(hit: Hit, nouns: list[str]) -> int:
         score -= 80
     if _noun_and_craft(hit.title, hit.snippet, nouns):
         score += 50
+    if "official wiki" in hit.title.lower():
+        score += 8
+    if "fandom" in hit.title.lower():
+        score -= 8
+    if _title_head(hit.title) in _TRANSLATED_TITLES:
+        score -= 25
     if "militia" in blob and not _has_craft(blob):
         score -= 15
     if "approval" in hit.title.lower() and not _has_craft(blob):
@@ -542,11 +574,6 @@ def _has_any_word(blob: str, words: list[str]) -> bool:
     return any(word in bag for word in words)
 
 
-def _is_howto(question: str) -> bool:
-    words = set(_WORD.findall((question or "").lower()))
-    return bool(words & _HOWTO)
-
-
 def _plain_snippet(raw: object) -> str:
     return strip_markup(str(raw or ""))
 
@@ -554,6 +581,43 @@ def _plain_snippet(raw: object) -> str:
 def _has_lang_suffix(text: str) -> bool:
     lowered = (text or "").lower().rstrip("/")
     return any(lowered.endswith(suffix) for suffix in _LANG_SUFFIX)
+
+
+def _drop_translated_duplicates(hits: list[Hit]) -> list[Hit]:
+    """Drop Byggnader when Buildings exists. Keep the English page."""
+    if not hits:
+        return hits
+    heads = [_title_head(hit.title) for hit in hits]
+    english = {head for head in heads if head not in _TRANSLATED_TITLES}
+    kept: list[Hit] = []
+    for hit in hits:
+        head = _title_head(hit.title)
+        alias = _TRANSLATED_TITLES.get(head)
+        if alias and (alias in english or any(alias == item for item in heads)):
+            continue
+        if _has_lang_suffix(hit.title):
+            parent = _title_head(hit.title)
+            if any(parent == other and other != head for other in heads):
+                continue
+        kept.append(hit)
+    return kept or hits
+
+
+def _title_head(title: str) -> str:
+    raw = (title or "").strip().lower()
+    if " - " in raw:
+        raw = raw.split(" - ", 1)[0]
+    if "/" in raw:
+        raw = raw.split("/", 1)[0]
+    return raw.strip()
+
+
+def _destem(word: str) -> str:
+    if word.endswith("ation") and len(word) > 7:
+        return word[:-5]
+    if word.endswith("ing") and len(word) > 5:
+        return word[:-3]
+    return word
 
 
 def _pluralize(word: str) -> str:
