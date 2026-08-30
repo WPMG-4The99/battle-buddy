@@ -30,7 +30,6 @@ _TIER_AT = re.compile(
     r"\b(?:tier|t)\s*([123])\s+backyards?\b|\blevel\s+([123])\s+enables\b",
     re.IGNORECASE,
 )
-_LEVEL_ANY = re.compile(r"\blevel\s+([123])\b", re.IGNORECASE)
 _COST_ROW = re.compile(
     r"(?P<planks>\d+)\s+[Pp]lanks?\s+(?P<rw>\d+)\s+(?:RW|[Rr]egional\s+[Ww]ealth)\b"
 )
@@ -127,22 +126,34 @@ def recipe_sentence(text: str, nouns: list[str] | None = None) -> str | None:
     return None
 
 
+_ALREADY_PATH = re.compile(
+    r"(Upgrade a burgage plot to level [123] and add the [^.]+\. "
+    r"[^.]+: \d+ .+ into \d+ [^.]+\.)",
+    re.IGNORECASE,
+)
+
+
 def start_path_sentence(text: str, nouns: list[str] | None = None) -> str | None:
     """Burgage level + backyard cost + produce row. Extract, do not invent."""
     cleaned = strip_markup(text)
     if not cleaned:
         return None
+    already = _ALREADY_PATH.search(cleaned)
+    if already and _short_enough(already.group(1)):
+        return already.group(1)
     needed = [item.lower() for item in (nouns or []) if item]
-    recipe = _table_recipe(cleaned, needed)
+    picked = _picked_produce(cleaned, needed)
+    recipe = _format_recipe(cleaned, picked) if picked is not None else None
     if not recipe or ":" not in recipe:
         return None
     building = recipe.split(":", 1)[0].strip()
     if not building or "burgage" not in cleaned.lower():
         return None
-    level = _level_for_building(cleaned, building)
+    row_pos = picked.start()
+    level = _level_for_building(cleaned, building, row_pos)
     if level is None:
         return None
-    cost = _extension_cost(cleaned, building)
+    cost = _extension_cost(cleaned, building, row_pos)
     shop = f"{building} backyard"
     if cost:
         shop = f"{shop} ({cost})"
@@ -154,6 +165,13 @@ def start_path_sentence(text: str, nouns: list[str] | None = None) -> str | None
 
 def _table_recipe(text: str, nouns: list[str]) -> str | None:
     """Pull `into N <noun>` and the nearest shop before it. Extract, do not invent."""
+    picked = _picked_produce(text, nouns)
+    if picked is None:
+        return None
+    return _format_recipe(text, picked)
+
+
+def _picked_produce(text: str, nouns: list[str]) -> re.Match[str] | None:
     matches = list(_PRODUCE.finditer(text))
     if not matches:
         return None
@@ -170,6 +188,10 @@ def _table_recipe(text: str, nouns: list[str]) -> str | None:
     # No question nouns: do not pick a random shop out of a backyard dump.
     if not nouns and len(matches) > 1 and not _short_enough(text):
         return None
+    return picked
+
+
+def _format_recipe(text: str, picked: re.Match[str]) -> str | None:
     building = _nearest_building(text[: picked.start()])
     inputs = " ".join(picked.group("inputs").split())
     count = picked.group("count")
@@ -183,41 +205,73 @@ def _table_recipe(text: str, nouns: list[str]) -> str | None:
     return line
 
 
-def _level_for_building(text: str, building: str) -> int | None:
-    """Last Tier/T/Level header before the shop, or a burgage level mention."""
-    lowered = (text or "").lower()
-    key = (building or "").lower().split("'")[0]
-    pos = lowered.find(key) if key else -1
+def _level_for_building(text: str, building: str, row_pos: int | None = None) -> int | None:
+    """Last Tier/Level header before the produce row. Ignore wiki-nav chrome."""
+    raw = text or ""
+    pos = row_pos if row_pos is not None else _shop_row_pos(raw, building)
     last: int | None = None
-    for match in _TIER_AT.finditer(text or ""):
-        if pos >= 0 and match.start() > pos:
+    for match in _TIER_AT.finditer(raw):
+        if pos is not None and match.start() > pos:
             break
         digit = match.group(1) or match.group(2)
         if digit:
             last = int(digit)
     if last is not None:
         return last
-    if "burgage" not in lowered:
+    if "burgage" not in raw.lower():
         return None
-    found = _LEVEL_ANY.search(text or "")
+    upgrade = re.search(r"upgrade a burgage plot to level\s+([123])\b", raw, re.IGNORECASE)
+    if upgrade:
+        return int(upgrade.group(1))
+    for match in re.finditer(r"\blevel\s+([123])\s+enables\b", raw, re.IGNORECASE):
+        if pos is not None and match.start() > pos:
+            break
+        last = int(match.group(1))
+    return last
+
+
+def _shop_row_pos(text: str, building: str) -> int | None:
+    """Cost or labeled produce row for the shop. Not 'Blacksmith Master' nav."""
+    root = (building or "").split("'")[0]
+    if not root:
+        return None
+    escaped = re.escape(root)
+    cost = re.compile(
+        rf"\b{escaped}(?:'s(?:\s+Workshop)?)?\s+\d+\s+[Pp]lanks?\b",
+        re.IGNORECASE,
+    )
+    found = list(cost.finditer(text or ""))
     if found:
-        return int(found.group(1))
+        return found[-1].start()
+    labeled = re.compile(
+        rf"\b{escaped}(?:'s(?:\s+Workshop)?)?:\s+\d+",
+        re.IGNORECASE,
+    )
+    found = list(labeled.finditer(text or ""))
+    if found:
+        return found[-1].start()
     return None
 
 
-def _extension_cost(text: str, building: str) -> str | None:
+def _extension_cost(text: str, building: str, row_pos: int | None = None) -> str | None:
     """`Blacksmith 8 Planks 25 RW` or `(8 planks, 25 regional wealth)`."""
     raw = text or ""
     root = (building or "").split("'")[0]
     if not root:
         return None
+    best: str | None = None
     for match in _COST_ROW.finditer(raw):
+        if row_pos is not None and match.start() > row_pos:
+            break
         prefix = raw[max(0, match.start() - 48) : match.start()]
         if root.lower() in prefix.lower():
-            return f"{match.group('planks')} planks, {match.group('rw')} regional wealth"
+            best = f"{match.group('planks')} planks, {match.group('rw')} regional wealth"
+    if best:
+        return best
     paren = _COST_PAREN.search(raw)
     if paren and root.lower() in raw.lower():
-        return f"{paren.group('planks')} planks, {paren.group('rw')} regional wealth"
+        if row_pos is None or paren.start() <= row_pos:
+            return f"{paren.group('planks')} planks, {paren.group('rw')} regional wealth"
     return None
 
 
