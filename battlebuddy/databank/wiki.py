@@ -7,7 +7,13 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlparse
 
-from battlebuddy.databank.clean import is_howto_question, is_patch_title, strip_markup
+from battlebuddy.databank.clean import (
+    expand_search_terms,
+    is_claim_question,
+    is_howto_question,
+    is_patch_title,
+    strip_markup,
+)
 from battlebuddy.databank.fetch import fetch_page, normalize_url
 from battlebuddy.databank.search import (
     AskResult,
@@ -41,6 +47,19 @@ _STRONG_CRAFT_WORDS = ("obtained",)
 _STRONG_CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
 _TAX_FALLBACKS = ("Buildings", "FAQ", "Manor")
+_CLAIM_FALLBACKS = ("FAQ", "Game_setup", "Warfare", "Regions")
+_CLAIM_HINTS = frozenset(
+    {
+        "baron",
+        "claim",
+        "defeat",
+        "eliminate",
+        "enemy",
+        "influence",
+        "kill",
+        "ruler",
+    }
+)
 _TRANSLATED_TITLES = {
     "byggnad": "building",
     "byggnader": "buildings",
@@ -262,7 +281,9 @@ def hunt_and_ask(store: DatabankStore, game: str | None, question: str) -> AskRe
     homes = wiki_homes_for(game, store)
     if not homes:
         return rank_ask_result(ask_pages(store, game, question), question)
-    needed = content_terms(query_terms(question))
+    needed = expand_search_terms(question, content_terms(query_terms(question)))
+    if is_claim_question(question):
+        needed = [term for term in needed if term not in {"defeat", "kill", "ruler"}]
     if not needed:
         return AskResult(ok=True, empty=False, message=_NO_WIKI_MATCH, question=question)
     existing = {item.url for item in store.list_sources(game)}
@@ -326,9 +347,9 @@ def search_wiki_hits(home: WikiHome, terms: list[str]) -> list[SearchHit]:
             continue
         if fetched.kind == "404":
             api_missing = True
-    if hits:
+    if hits and not (api_missing or _wants_claim_fallback(variants)):
         return hits
-    if api_missing:
+    if api_missing or _wants_claim_fallback(variants):
         for url in fallback_title_urls(home, variants):
             if url in seen:
                 continue
@@ -398,6 +419,8 @@ def fallback_title_urls(home: WikiHome, terms: list[str]) -> list[str]:
     bag = {item.lower() for item in terms}
     if bag & {"tax", "taxes", "taxing", "taxation"}:
         extras.extend(_TAX_FALLBACKS)
+    if bag & _CLAIM_HINTS:
+        extras.extend(_CLAIM_FALLBACKS)
     for term in list(terms) + extras:
         title = term[:1].upper() + term[1:] if term[:1].islower() else term
         if term in _TAX_FALLBACKS:
@@ -572,6 +595,11 @@ def _cue_words(blob: str) -> list[str]:
 def _has_any_word(blob: str, words: list[str]) -> bool:
     bag = set(_WORD.findall(blob.lower()))
     return any(word in bag for word in words)
+
+
+def _wants_claim_fallback(terms: list[str]) -> bool:
+    bag = {item.lower() for item in terms}
+    return bool(bag & _CLAIM_HINTS)
 
 
 def _plain_snippet(raw: object) -> str:

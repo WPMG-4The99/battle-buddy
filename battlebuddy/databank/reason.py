@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from battlebuddy.databank.clean import (
+    compile_claim_line,
     compile_howto_line,
+    is_claim_question,
     is_howto_question,
     recipe_sentence,
     strip_markup,
@@ -97,6 +99,8 @@ def _is_ask_extract(text: str, question: str) -> bool:
     if recipe_sentence(blob, nouns) is not None:
         return True
     if is_howto_question(question) and compile_howto_line([blob], nouns):
+        return True
+    if is_claim_question(question) and compile_claim_line([blob]):
         return True
     return False
 

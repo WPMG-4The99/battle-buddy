@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from battlebuddy.databank.clean import (
+    compile_claim_line,
     compile_howto_line,
+    expand_search_terms,
+    is_claim_question,
     is_howto_question,
     is_patch_title,
     is_start_question,
@@ -50,6 +53,7 @@ _STOP = {
     "with",
 }
 _WEAK = {
+    "another",
     "folks",
     "get",
     "make",
@@ -166,6 +170,10 @@ def compile_ask_line(question: str, texts: list[str]) -> str | None:
             return recipe
     if recipes:
         return recipes[0]
+    if is_claim_question(question):
+        claim = compile_claim_line(texts)
+        if claim:
+            return claim
     if is_howto_question(question):
         return compile_howto_line(texts, nouns)
     return None
@@ -344,29 +352,32 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
     if not words:
         return None
     combined = f"{title}.\n{cleaned}"
+    match_needed = expand_search_terms(question, needed)
+    match_terms = expand_search_terms(question, terms)
     path = start_path_sentence(combined, needed) if is_start_question(question) else None
     recipe = recipe_sentence(cleaned, needed)
     howto = compile_howto_line([combined], needed) if is_howto_question(question) else None
-    require = page_require_line(cleaned, needed) if howto is None else None
-    snippet = path or recipe or howto or require or _clip_cleaned(cleaned, needed)
+    claim = compile_claim_line([combined]) if is_claim_question(question) else None
+    require = page_require_line(cleaned, needed) if howto is None and claim is None else None
+    snippet = path or recipe or howto or claim or require or _clip_cleaned(cleaned, match_needed)
     window = _SNIP_WORDS
     if len(words) <= window:
-        if not _has_content(words, needed):
+        if not _has_content(words, match_needed):
             return None
-        score = _score(words, terms)
+        score = _score(words, match_terms)
         if score <= 0:
             return None
         return Hit(
             title=title,
             snippet=snippet,
-            score=_adjust_score(score, title, path, recipe, howto),
+            score=_adjust_score(score, title, path, recipe, howto or claim),
         )
     best_score = 0
     for start in range(0, len(words) - window + 1, 4):
         chunk = words[start : start + window]
-        if not _has_content(chunk, needed):
+        if not _has_content(chunk, match_needed):
             continue
-        score = _score(chunk, terms)
+        score = _score(chunk, match_terms)
         if score > best_score:
             best_score = score
     if best_score <= 0:
@@ -374,7 +385,7 @@ def _best_hit(body: str, terms: list[str], needed: list[str], question: str = ""
     return Hit(
         title=title,
         snippet=snippet,
-        score=_adjust_score(best_score, title, path, recipe, howto),
+        score=_adjust_score(best_score, title, path, recipe, howto or claim),
     )
 
 
