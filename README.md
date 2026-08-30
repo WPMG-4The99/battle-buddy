@@ -37,6 +37,10 @@ python -m battlebuddy remind me in 1 minute to check food stores
 
 Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m battlebuddy list` still shows it.
 
+## Demo
+
+PHYRE on a reel, no login: [watch the share page](https://reporeel-marlandoj.zocomputer.io/v/orZ8RaBQ). Reel by Marlando ([RepoReel](https://github.com/marlandoj/reporeel)). For the forgotten 99%. Oorah.
+
 ## Yard
 
 **Hackyard Yard #1.** Theme: no accounts. MIT.
