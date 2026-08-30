@@ -47,7 +47,7 @@ macOS / Linux: same commands. venv optional. Typed fallback always works even if
 
 State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed. Restart and `list` still shows it.
 
-Databank (paste + fetch only): paste a public wiki URL in the window, hit **ADD / FETCH**. The app does a public http/https GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). No game detected → `general`. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. **ASK** searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, ADD / FETCH a link first.
+Databank (one box on the right): paste a public wiki URL or type a game question, hit **Submit**. A public http/https URL does a GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). Anything else is ASK. No game detected → `general`. First time detect names a game with an empty folder, Battle Buddy searches DuckDuckGo HTML (no account, no key) for `{game} wiki`, keeps the top 3 wiki links, and fetches them in the background. Reminders stay live. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. ASK searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, paste a wiki link first.
 
 ---
 
@@ -80,7 +80,7 @@ hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 
 4. From the repo root, say or type: `Remind me in 1 minute to check food stores.`
 
-Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: SUBMIT. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, FIRE still fills the window.
+Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: SUBMIT. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, the due reminder card still goes FIRE. Hidden window still opens the topmost splash.
 
 ## System requirements
 

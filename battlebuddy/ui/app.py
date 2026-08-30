@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 
 from battlebuddy.databank.reason import present_ask, start_bundled_server, stop_bundled_server
 from battlebuddy.databank.search import ask_pages
+from battlebuddy.databank.seed import (
+    needs_wiki_seed,
+    seed_hold_line,
+    seed_new_game,
+)
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
@@ -24,17 +29,27 @@ from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
 from battlebuddy.voice.tts import speak_async, tts_available
 
-_BG = "#111111"
+_BG = "#0B0B0B"
+_GOLD = "#E6C35C"
 _FG = "#F4F1E8"
-_FLAME = "#FF6A00"
-_FIRE_BG = "#000000"
-_FIRE_FG = "#FFE600"
-_INPUT_BG = "#1C1C1C"
+_SCARLET = "#C41E3A"
+_PURPLE = "#7B3FA8"
+_FIRE_BG = "#0B0B0B"
+_FIRE_FG = "#E6C35C"
+_INPUT_BG = "#161616"
+_CARD = "#141414"
+_EDGE = "#2A2A2A"
 _MUTED = "#C4C0B4"
+_BTN_DARK = "#1F1F1F"
+_BTN_DARK_HI = "#2A2A2A"
 _EXAMPLE = "remind me in 1 minute to check food stores"
+_QUERY_HINT = "Paste a wiki link or ask a game question"
 _POLL_MS = 250
 _DETECT_EVERY = 20
 _CLOCK_FONT = ("Arial", 40, "bold")
+_TITLE_FONT = ("Arial", 30, "bold")
+_BODY_FONT = ("Arial", 16)
+_HINT_FONT = ("Arial", 14)
 
 
 def remaining_seconds(due_at: str, now: datetime | None = None) -> int:
@@ -70,6 +85,17 @@ def row_clock_text(status: str, due_at: str, now: datetime | None = None) -> str
 def is_named_game(name: str | None) -> bool:
     """True when detect has a real game name, not a blank flicker."""
     return bool((name or "").strip())
+
+
+def looks_like_public_url(text: str) -> bool:
+    """True for a public http(s) URL. Game questions go to ASK."""
+    raw = (text or "").strip()
+    if not raw or any(ch.isspace() for ch in raw):
+        return False
+    lower = raw.lower()
+    if lower in {"http://", "https://"}:
+        return False
+    return lower.startswith("http://") or lower.startswith("https://")
 
 
 def ask_visible_message(result: object) -> str:
@@ -147,6 +173,8 @@ class BattleBuddyApp:
         self.engine = ReminderEngine()
         self._listening = False
         self._fire_up = False
+        self._firing: set[str] = set()
+        self._selected_id: str | None = None
         self._wipe_armed = False
         self._clocks: dict[str, tuple[object, str]] = {}
         self._minute_warned: set[str] = set()
@@ -160,6 +188,7 @@ class BattleBuddyApp:
         self._game_name: str | None = self.databank.sole_saved_game()
         self._fetching = False
         self._asking = False
+        self._seed_started: set[str] = set()
 
         self.root.minsize(1000, 640)
         self.root.geometry("1200x800")
@@ -184,48 +213,21 @@ class BattleBuddyApp:
         ).pack(side="bottom", pady=8)
 
         columns = tk.Frame(self.root, bg=_BG)
-        columns.pack(fill="both", expand=True)
+        columns.pack(fill="both", expand=True, padx=20, pady=(8, 4))
         columns.columnconfigure(0, weight=1, uniform="col")
-        columns.columnconfigure(1, weight=1, uniform="col")
+        columns.columnconfigure(2, weight=1, uniform="col")
         columns.rowconfigure(0, weight=1)
 
         left = tk.Frame(columns, bg=_BG)
-        left.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=4)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 16), pady=8)
+        rule = tk.Frame(columns, bg=_PURPLE, width=2)
+        rule.grid(row=0, column=1, sticky="ns", pady=16)
         right = tk.Frame(columns, bg=_BG)
-        right.grid(row=0, column=1, sticky="nsew", padx=(10, 20), pady=4)
+        right.grid(row=0, column=2, sticky="nsew", padx=(16, 0), pady=8)
 
         self._build_left(left)
         self._build_databank(right)
         self._build_ask(right)
-
-        self._overlay = tk.Frame(self.root, bg=_FIRE_BG)
-        tk.Label(
-            self._overlay,
-            text="FIRE",
-            font=("Arial", 80, "bold"),
-            fg=_FIRE_FG,
-            bg=_FIRE_BG,
-        ).pack(pady=(80, 12))
-        self.fire_text = tk.Label(
-            self._overlay,
-            text="",
-            font=("Arial", 28, "bold"),
-            fg=_FG,
-            bg=_FIRE_BG,
-            wraplength=640,
-        )
-        self.fire_text.pack(pady=12, padx=24)
-        tk.Button(
-            self._overlay,
-            text="SEEN",
-            font=("Arial", 24, "bold"),
-            bg=_FIRE_FG,
-            fg=_FIRE_BG,
-            activebackground="#FFF38A",
-            relief="flat",
-            cursor="hand2",
-            command=self._dismiss_fire,
-        ).pack(fill="x", ipady=18, padx=48, pady=32)
 
         self._refresh_list()
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
@@ -240,31 +242,31 @@ class BattleBuddyApp:
             parent,
             text="CLEAR ALL",
             font=("Arial", 16, "bold"),
-            bg="#2A2A2A",
-            fg=_FG,
-            activebackground="#3A3A3A",
-            activeforeground=_FG,
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
             relief="flat",
             cursor="hand2",
             command=self._clear_all,
         )
-        self.clear_all_btn.pack(side="bottom", fill="x", ipady=8, pady=(2, 2))
+        self.clear_all_btn.pack(side="bottom", fill="x", ipady=10, pady=(8, 4))
 
         tk.Label(
             parent,
             text="BATTLE BUDDY",
-            font=("Arial", 28, "bold"),
-            fg=_FLAME,
+            font=_TITLE_FONT,
+            fg=_GOLD,
             bg=_BG,
-        ).pack(pady=(4, 0))
+        ).pack(pady=(8, 0))
 
         tk.Label(
             parent,
             text="Speak it once. It holds the line.",
-            font=("Arial", 14),
+            font=_HINT_FONT,
             fg=_FG,
             bg=_BG,
-        ).pack(pady=(2, 2))
+        ).pack(pady=(4, 8))
 
         self.game_line = tk.Label(
             parent,
@@ -273,36 +275,26 @@ class BattleBuddyApp:
             fg=_MUTED,
             bg=_BG,
         )
-        self.game_line.pack(pady=(0, 6))
+        self.game_line.pack(pady=(0, 10))
 
-        self._field_caption(parent, "REMINDER", "Lock a time reminder here")
+        self._field_caption(parent, "Reminder", "Lock a time reminder here")
 
-        self.entry = tk.Entry(
-            parent,
-            font=("Arial", 20),
-            bg=_INPUT_BG,
-            fg=_FG,
-            insertbackground=_FLAME,
-            relief="flat",
-            highlightthickness=2,
-            highlightbackground=_FLAME,
-            highlightcolor=_FLAME,
-        )
-        self.entry.pack(fill="x", ipady=6, pady=4)
+        self.entry = self._make_entry(parent, size=20)
+        self.entry.pack(fill="x", ipady=8, pady=(2, 8))
         self.entry.bind("<Return>", lambda _event: self._lock())
         self.entry.focus_set()
 
         actions = tk.Frame(parent, bg=_BG)
-        actions.pack(fill="x", pady=(6, 4))
+        actions.pack(fill="x", pady=(4, 8))
         speak_on = stt_available()
         self.lock_btn = tk.Button(
             actions,
             text="SUBMIT",
             font=("Arial", 22, "bold"),
-            bg=_FLAME,
-            fg=_BG,
-            activebackground="#FF8A30",
-            activeforeground=_BG,
+            bg=_SCARLET,
+            fg=_FG,
+            activebackground="#E03A54",
+            activeforeground=_FG,
             relief="flat",
             cursor="hand2",
             command=self._lock,
@@ -311,7 +303,7 @@ class BattleBuddyApp:
             side="left",
             expand=True,
             fill="x",
-            ipady=8,
+            ipady=10,
             padx=(0, 8) if speak_on else 0,
         )
         if speak_on:
@@ -319,37 +311,37 @@ class BattleBuddyApp:
                 actions,
                 text="SPEAK",
                 font=("Arial", 16, "bold"),
-                bg="#2A2A2A",
-                fg=_FG,
-                activebackground="#3A3A3A",
-                activeforeground=_FG,
+                bg=_BTN_DARK,
+                fg=_GOLD,
+                activebackground=_BTN_DARK_HI,
+                activeforeground=_GOLD,
                 relief="flat",
                 cursor="hand2",
                 command=self._speak,
             )
-            self.speak_btn.pack(side="left", expand=True, fill="x", ipady=8)
+            self.speak_btn.pack(side="left", expand=True, fill="x", ipady=10)
         else:
             self.speak_btn = None
 
         self.status = tk.Label(
             parent,
             text="One action. Lock a reminder. No account.",
-            font=("Arial", 16),
+            font=_BODY_FONT,
             fg=_FG,
             bg=_BG,
             anchor="w",
         )
-        self.status.pack(fill="x", pady=4)
+        self.status.pack(fill="x", pady=(4, 8))
 
         list_frame = tk.Frame(parent, bg=_BG)
-        list_frame.pack(fill="both", expand=True, pady=(4, 4))
+        list_frame.pack(fill="both", expand=True, pady=(8, 4))
         tk.Label(
             list_frame,
-            text="ON DISK",
-            font=("Arial", 14, "bold"),
-            fg=_FLAME,
+            text="Reminders",
+            font=("Arial", 15, "bold"),
+            fg=_GOLD,
             bg=_BG,
-        ).pack(anchor="w")
+        ).pack(anchor="w", pady=(0, 6))
         self.list_canvas = tk.Canvas(
             list_frame,
             bg=_BG,
@@ -380,7 +372,7 @@ class BattleBuddyApp:
         """Large high-contrast name above a box. Hint stays outside the entry."""
         tk = self.tk
         row = tk.Frame(parent, bg=_BG)
-        pack = {"fill": "x", "pady": (4, 2)}
+        pack = {"fill": "x", "pady": (6, 4)}
         if padx:
             pack["padx"] = padx
         row.pack(**pack)
@@ -388,7 +380,7 @@ class BattleBuddyApp:
             row,
             text=title,
             font=("Arial", 16, "bold"),
-            fg=_FLAME,
+            fg=_GOLD,
             bg=_BG,
             anchor="w",
         ).pack(side="left")
@@ -397,122 +389,100 @@ class BattleBuddyApp:
         tk.Label(
             row,
             text=hint,
-            font=("Arial", 14),
-            fg=_FG,
+            font=_HINT_FONT,
+            fg=_MUTED,
             bg=_BG,
             anchor="w",
         ).pack(side="left", padx=(12, 0))
 
+    def _make_entry(self, parent: object, size: int = 18) -> object:
+        """Gold caret, purple focus ring only. No orange chrome."""
+        return self.tk.Entry(
+            parent,
+            font=("Arial", size),
+            bg=_INPUT_BG,
+            fg=_FG,
+            insertbackground=_GOLD,
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=_EDGE,
+            highlightcolor=_PURPLE,
+        )
+
     def _build_databank(self, parent: object) -> None:
-        """Paste a URL. The app fetches. ASK searches local files. No chat."""
+        """One box: wiki URL or game question. Fetch or ASK. No chat."""
         tk = self.tk
         box = tk.Frame(parent, bg=_BG)
-        box.pack(fill="x", pady=(4, 4))
+        box.pack(fill="x", pady=(8, 8))
 
         self.databank_header = tk.Label(
             box,
             text=databank_label(self._game_name),
-            font=("Arial", 14, "bold"),
-            fg=_FLAME,
+            font=("Arial", 15, "bold"),
+            fg=_GOLD,
             bg=_BG,
             anchor="w",
         )
-        self.databank_header.pack(fill="x", pady=(2, 0))
+        self.databank_header.pack(fill="x", pady=(2, 4))
 
-        self._field_caption(box, "URL", "Paste a wiki URL here")
+        self._field_caption(box, "Wiki or question", _QUERY_HINT)
 
-        url_row = tk.Frame(box, bg=_BG)
-        url_row.pack(fill="x", pady=(0, 2))
-        self.url_entry = tk.Entry(
-            url_row,
-            font=("Arial", 18),
-            bg=_INPUT_BG,
-            fg=_FG,
-            insertbackground=_FLAME,
-            relief="flat",
-            highlightthickness=2,
-            highlightbackground=_FLAME,
-            highlightcolor=_FLAME,
-        )
-        self.url_entry.pack(side="left", expand=True, fill="x", ipady=8)
-        self.url_entry.bind("<Return>", lambda _event: self._add_fetch())
-        self.fetch_btn = tk.Button(
-            url_row,
-            text="ADD / FETCH",
+        query_row = tk.Frame(box, bg=_BG)
+        query_row.pack(fill="x", pady=(0, 6))
+        self.ask_entry = self._make_entry(query_row, size=18)
+        self.url_entry = self.ask_entry
+        self.ask_entry.pack(side="left", expand=True, fill="x", ipady=10)
+        self.ask_entry.bind("<Return>", lambda _event: self._submit_query())
+        self.query_btn = tk.Button(
+            query_row,
+            text="Submit",
             font=("Arial", 16, "bold"),
-            bg=_FLAME,
-            fg=_BG,
-            activebackground="#FF8A30",
-            activeforeground=_BG,
+            bg=_SCARLET,
+            fg=_FG,
+            activebackground="#E03A54",
+            activeforeground=_FG,
             relief="flat",
             cursor="hand2",
-            command=self._add_fetch,
+            command=self._submit_query,
         )
-        self.fetch_btn.pack(side="left", ipady=8, padx=(8, 0))
+        self.query_btn.pack(side="left", ipady=10, padx=(10, 0))
+        self.fetch_btn = self.query_btn
+        self.ask_btn = self.query_btn
 
         self.databank_status = tk.Label(
             box,
-            text="Paste a public wiki URL. The app fetches it. No account.",
-            font=("Arial", 14),
-            fg=_FG,
+            text="Public http(s) URL fetches a page. Anything else is ASK. No account.",
+            font=_HINT_FONT,
+            fg=_MUTED,
             bg=_BG,
             anchor="w",
+            wraplength=520,
+            justify="left",
         )
-        self.databank_status.pack(fill="x", pady=(0, 4))
+        self.databank_status.pack(fill="x", pady=(0, 8))
 
         self.source_box = tk.Frame(box, bg=_BG)
         self.source_box.pack(fill="x")
         self._refresh_sources()
 
     def _build_ask(self, parent: object) -> None:
-        """ASK + output fill the right column. This pane is the only ASK dump."""
+        """ASK answer pane under the one box. Reminders never land here."""
         tk = self.tk
         box = tk.Frame(parent, bg=_BG)
-        box.pack(fill="both", expand=True, pady=(4, 4))
-
-        self._field_caption(box, "ASK YOUR QUESTION")
-
-        ask_row = tk.Frame(box, bg=_BG)
-        ask_row.pack(fill="x", pady=(0, 2))
-        self.ask_entry = tk.Entry(
-            ask_row,
-            font=("Arial", 18),
-            bg=_INPUT_BG,
-            fg=_FG,
-            insertbackground=_FLAME,
-            relief="flat",
-            highlightthickness=2,
-            highlightbackground=_FLAME,
-            highlightcolor=_FLAME,
-        )
-        self.ask_entry.pack(side="left", expand=True, fill="x", ipady=8)
-        self.ask_entry.bind("<Return>", lambda _event: self._ask())
-        self.ask_btn = tk.Button(
-            ask_row,
-            text="ASK",
-            font=("Arial", 16, "bold"),
-            bg=_FLAME,
-            fg=_BG,
-            activebackground="#FF8A30",
-            activeforeground=_BG,
-            relief="flat",
-            cursor="hand2",
-            command=self._ask,
-        )
-        self.ask_btn.pack(side="left", ipady=8, padx=(8, 0))
+        box.pack(fill="both", expand=True, pady=(8, 4))
 
         pane = tk.Frame(box, bg=_INPUT_BG, height=220)
         pane.pack(fill="both", expand=True, pady=(0, 4))
         pane.pack_propagate(False)
         self.ask_out = tk.Text(
             pane,
-            font=("Arial", 14),
+            font=_HINT_FONT,
             bg=_INPUT_BG,
             fg=_FG,
             relief="flat",
             highlightthickness=2,
-            highlightbackground=_FLAME,
-            highlightcolor=_FLAME,
+            highlightbackground=_EDGE,
+            highlightcolor=_PURPLE,
             wrap="word",
             height=8,
             state="disabled",
@@ -523,6 +493,14 @@ class BattleBuddyApp:
         scroll.pack(side="right", fill="y")
         self.ask_out.pack(side="left", fill="both", expand=True)
 
+    def _submit_query(self) -> None:
+        """URL → fetch. Anything else → ASK. One field, one Submit."""
+        text = str(self.ask_entry.get()).strip()
+        if looks_like_public_url(text):
+            self._add_fetch()
+            return
+        self._ask()
+
     def _add_fetch(self) -> None:
         if self._fetching:
             return
@@ -531,7 +509,7 @@ class BattleBuddyApp:
             self.databank_status.config(text="Paste a public http or https URL.")
             return
         self._fetching = True
-        self.fetch_btn.config(state="disabled", text="FETCHING")
+        self.fetch_btn.config(state="disabled", text="Fetching")
         self.databank_status.config(text="Fetching. Public GET only.")
         game = self._game_name
         threading.Thread(target=self._fetch_worker, args=(url, game), daemon=True).start()
@@ -549,7 +527,7 @@ class BattleBuddyApp:
     def _fetch_done(self, result: object, game: str | None) -> None:
         self._fetching = False
         try:
-            self.fetch_btn.config(state="normal", text="ADD / FETCH")
+            self.fetch_btn.config(state="normal", text="Submit")
         except Exception:
             pass
         if result is None:
@@ -564,7 +542,6 @@ class BattleBuddyApp:
             self.databank_status.config(text=f"Saved. {label} → {slug}.")
             try:
                 self.url_entry.delete(0, "end")
-                self.url_entry.insert(0, "https://")
             except Exception:
                 pass
         else:
@@ -591,7 +568,7 @@ class BattleBuddyApp:
                 fg=_MUTED,
                 bg=_BG,
                 anchor="w",
-            ).pack(fill="x", pady=2)
+            ).pack(fill="x", pady=4)
             return
         for item in sources:
             line = item.title or item.url
@@ -604,7 +581,7 @@ class BattleBuddyApp:
                 anchor="w",
                 wraplength=520,
                 justify="left",
-            ).pack(fill="x", pady=1)
+            ).pack(fill="x", pady=2)
 
     def _ask(self) -> None:
         """Local retrieve first. Hunt the game wiki in the background on a miss."""
@@ -758,15 +735,22 @@ class BattleBuddyApp:
             for item in self.engine.list_all()
             if item.status != "cancelled"
         ]
+        reminders.sort(
+            key=lambda item: (
+                0 if item.id in self._firing else
+                1 if item.status == STATUS_PENDING else
+                2
+            )
+        )
         if not reminders:
             tk.Label(
                 self.list_box,
                 text="No reminders on disk.",
-                font=("Arial", 16),
+                font=_BODY_FONT,
                 fg=_MUTED,
                 bg=_BG,
                 anchor="w",
-            ).pack(fill="x", pady=8)
+            ).pack(fill="x", pady=12)
             return
         for item in reminders:
             self._add_row(item)
@@ -781,40 +765,81 @@ class BattleBuddyApp:
 
     def _add_row(self, item: Reminder) -> None:
         tk = self.tk
-        row = tk.Frame(self.list_box, bg=_INPUT_BG, highlightthickness=2, highlightbackground=_FLAME)
-        row.pack(fill="x", pady=8)
+        firing = item.id in self._firing
+        selected = item.id == self._selected_id and not firing
+        if firing:
+            card_bg = _SCARLET
+            card_fg = _GOLD
+            clock_fg = _GOLD
+            edge = _GOLD
+        else:
+            card_bg = _CARD
+            card_fg = _FG
+            clock_fg = _GOLD if item.status == STATUS_PENDING else _MUTED
+            edge = _PURPLE if selected else _EDGE
+        row = tk.Frame(
+            self.list_box,
+            bg=card_bg,
+            highlightthickness=2,
+            highlightbackground=edge,
+        )
+        row.pack(fill="x", pady=10)
+        row.bind("<Button-1>", lambda _event, i=item: self._select_row(i.id))
+        if firing:
+            tk.Label(
+                row,
+                text="FIRE",
+                font=("Arial", 18, "bold"),
+                fg=_GOLD,
+                bg=card_bg,
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(12, 0))
         tk.Label(
             row,
             text=item.text,
-            font=("Arial", 16),
-            fg=_FG,
-            bg=_INPUT_BG,
+            font=_BODY_FONT,
+            fg=card_fg,
+            bg=card_bg,
             wraplength=480,
             justify="left",
             anchor="w",
-        ).pack(fill="x", padx=12, pady=(10, 2))
+        ).pack(fill="x", padx=14, pady=(12 if not firing else 4, 2))
         pending = item.status == STATUS_PENDING
         clock = tk.Label(
             row,
             text=row_clock_text(item.status, item.due_at),
             font=_CLOCK_FONT,
-            fg=_FLAME if pending else _FIRE_FG,
-            bg=_INPUT_BG,
+            fg=clock_fg,
+            bg=card_bg,
             anchor="w",
         )
-        clock.pack(fill="x", padx=12, pady=(0, 4))
+        clock.pack(fill="x", padx=14, pady=(0, 6))
+        clock.bind("<Button-1>", lambda _event, i=item: self._select_row(i.id))
         if pending:
             self._clocks[item.id] = (clock, item.due_at)
-        btns = tk.Frame(row, bg=_INPUT_BG)
-        btns.pack(fill="x", padx=12, pady=(0, 10))
+        btns = tk.Frame(row, bg=card_bg)
+        btns.pack(fill="x", padx=14, pady=(0, 12))
+        if firing:
+            tk.Button(
+                btns,
+                text="SEEN",
+                font=("Arial", 16, "bold"),
+                bg=_GOLD,
+                fg=_BG,
+                activebackground="#F0D67A",
+                activeforeground=_BG,
+                relief="flat",
+                cursor="hand2",
+                command=lambda i=item: self._seen_item(i),
+            ).pack(side="left", expand=True, fill="x", ipady=12, padx=(0, 8))
         tk.Button(
             btns,
             text="SNOOZE 5 MIN",
             font=("Arial", 16, "bold"),
-            bg=_FLAME,
-            fg=_BG,
-            activebackground="#FF8A30",
-            activeforeground=_BG,
+            bg=_GOLD if not firing else _BTN_DARK,
+            fg=_BG if not firing else _GOLD,
+            activebackground="#F0D67A" if not firing else _BTN_DARK_HI,
+            activeforeground=_BG if not firing else _GOLD,
             relief="flat",
             cursor="hand2",
             command=lambda i=item: self._snooze_item(i),
@@ -823,16 +848,21 @@ class BattleBuddyApp:
             btns,
             text="CLEAR",
             font=("Arial", 16, "bold"),
-            bg="#2A2A2A",
+            bg=_BTN_DARK,
             fg=_FG,
-            activebackground="#3A3A3A",
+            activebackground=_BTN_DARK_HI,
             activeforeground=_FG,
             relief="flat",
             cursor="hand2",
             command=lambda i=item: self._clear_item(i),
         ).pack(side="left", expand=True, fill="x", ipady=12)
 
+    def _select_row(self, reminder_id: str) -> None:
+        self._selected_id = reminder_id
+        self._refresh_list()
+
     def _snooze_item(self, item: Reminder) -> None:
+        self._firing.discard(item.id)
         result = run_line(self.engine, f"snooze {item.id} 5 minutes")
         self.status.config(text=result.message)
         if result.speak:
@@ -842,12 +872,25 @@ class BattleBuddyApp:
         self._refresh_list()
 
     def _clear_item(self, item: Reminder) -> None:
+        self._firing.discard(item.id)
         result = run_line(self.engine, f"clear {item.id}")
         self.status.config(text=result.message)
         if result.speak:
             speak_async(result.speak)
         self._wipe_armed = False
         self.clear_all_btn.config(text="CLEAR ALL")
+        self._refresh_list()
+
+    def _seen_item(self, item: Reminder) -> None:
+        """Dismiss FIRE on this card only. Reminder stays on disk."""
+        self._firing.discard(item.id)
+        if not self._firing:
+            self._fire_up = False
+            try:
+                self.root.attributes("-topmost", False)
+            except Exception:
+                pass
+        self.status.config(text="Fire seen. Lock another when you need it.")
         self._refresh_list()
 
     def _clear_all(self) -> None:
@@ -858,6 +901,8 @@ class BattleBuddyApp:
             return
         result = run_line(self.engine, "clear all")
         self._wipe_armed = False
+        self._firing.clear()
+        self._fire_up = False
         self.clear_all_btn.config(text="CLEAR ALL")
         self.status.config(text=result.message)
         if result.speak:
@@ -916,18 +961,65 @@ class BattleBuddyApp:
         if not is_named_game(old):
             self._game_name = name
             self._refresh_sources()
+            self._maybe_seed_wiki(name)
             return
         if game_slug(old) == game_slug(name):
             self._game_name = name
             return
         self._game_name = name
         self._refresh_sources()
+        if self._maybe_seed_wiki(name):
+            return
         notice = switched_databank_line(name)
         self._show_ask(notice)
         try:
             self.databank_status.config(text=notice)
         except Exception:
             pass
+
+    def _maybe_seed_wiki(self, game: str | None) -> bool:
+        """Empty new-game folder: hold the line and fetch wikis. Reminders stay live."""
+        if not needs_wiki_seed(self.databank, game):
+            return False
+        slug = game_slug(game)
+        if slug in self._seed_started:
+            return False
+        self._seed_started.add(slug)
+        note = f"Hold the line. Fetching wiki pages for {game}. Give it a few minutes."
+        self._show_ask(note)
+        try:
+            self.databank_status.config(text=note)
+        except Exception:
+            pass
+        self._start_wiki_seed(game)
+        return True
+
+    def _start_wiki_seed(self, game: str | None) -> None:
+        threading.Thread(target=self._seed_worker, args=(game,), daemon=True).start()
+
+    def _seed_worker(self, game: str | None) -> None:
+        try:
+            result = seed_new_game(self.databank, game)
+        except Exception:
+            result = None
+        try:
+            self.root.after(0, lambda r=result, g=game: self._seed_done(r, g))
+        except Exception:
+            return
+
+    def _seed_done(self, result: object, game: str | None) -> None:
+        if game_slug(self._game_name) != game_slug(game):
+            return
+        if result is None:
+            text = "Could not reach the wikis. Reminders still hold."
+        else:
+            text = str(getattr(result, "message", "") or "Could not reach the wikis. Reminders still hold.")
+        self._show_ask(text)
+        try:
+            self.databank_status.config(text=text)
+        except Exception:
+            pass
+        self._refresh_sources()
 
     def _emit_minute_warns(self) -> None:
         """One tick-tick-tick when a pending reminder first has 60 seconds left."""
@@ -956,20 +1048,21 @@ class BattleBuddyApp:
         sys.stdout.write("\a")
         sys.stdout.flush()
         speak_async(f"Battle Buddy. Fire. {reminder.text}")
+        self._firing.add(reminder.id)
         hidden = _window_is_hidden(self.root)
         raise_for_fire(self.root)
-        self._show_fire(reminder.text)
+        self._show_fire(reminder)
         raise_for_fire(self.root)
         if hidden:
             spawn_fire_splash(reminder.text)
         else:
             self.root.after(400, lambda t=reminder.text: self._ensure_fire_visible(t))
 
-    def _show_fire(self, text: str) -> None:
+    def _show_fire(self, reminder: Reminder) -> None:
+        """Visible window: that card goes FIRE. No full-window overlay."""
         self._fire_up = True
-        self.fire_text.config(text=text)
-        self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self._overlay.lift()
+        self._firing.add(reminder.id)
+        self.status.config(text=f"FIRE. {reminder.text}")
 
     def _ensure_fire_visible(self, text: str) -> None:
         """If the main window is not on screen, open a topmost FIRE splash."""
@@ -979,12 +1072,16 @@ class BattleBuddyApp:
 
     def _dismiss_fire(self) -> None:
         self._fire_up = False
-        self._overlay.place_forget()
+        self._firing.clear()
         try:
             self.root.attributes("-topmost", False)
         except Exception:
             pass
         self.status.config(text="Fire seen. Lock another when you need it.")
+        try:
+            self._refresh_list()
+        except Exception:
+            pass
 
     def _clear_drafts(self) -> None:
         """Wipe typed drafts only. Reminders and databank stay on disk."""
@@ -1141,14 +1238,14 @@ def run_fire_splash(text: str) -> int:
         root,
         text="FIRE",
         font=("Arial", 80, "bold"),
-        fg=_FIRE_FG,
+        fg=_SCARLET,
         bg=_FIRE_BG,
     ).pack(pady=(80, 12))
     tk.Label(
         root,
         text=text,
         font=("Arial", 28, "bold"),
-        fg=_FG,
+        fg=_GOLD,
         bg=_FIRE_BG,
         wraplength=640,
     ).pack(pady=12, padx=24)
@@ -1156,9 +1253,10 @@ def run_fire_splash(text: str) -> int:
         root,
         text="SEEN",
         font=("Arial", 24, "bold"),
-        bg=_FIRE_FG,
-        fg=_FIRE_BG,
-        activebackground="#FFF38A",
+        bg=_SCARLET,
+        fg=_GOLD,
+        activebackground="#E03A54",
+        activeforeground=_GOLD,
         relief="flat",
         cursor="hand2",
         command=root.destroy,

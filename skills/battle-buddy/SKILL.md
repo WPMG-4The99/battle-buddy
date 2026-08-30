@@ -87,7 +87,7 @@ State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Do 
 1. Refuse any login, email, OAuth, Steam key, or cloud STT request. Completion: the user is still in the reminder loop with no account.
 2. Parse the delay and the check, or the list / snooze / clear line. If unclear, ask one short question. Completion: the command is known.
 3. Prefer the typed command from the repo root. If they asked for the window, run `python -m battlebuddy ui`. If they spoke and local STT exists, `listen` is allowed. For a new reminder, set `timeout` above the delay. Completion: confirm is immediate (`Locked. Fires in ...`, `Snoozed...`, or `Cleared...`) and local TTS speaks it when TTS exists.
-4. For a new reminder, leave the process running until FIRE (banner and/or the UI overlay) and local TTS if the box has it. Completion: fire happened while the process was up. List / snooze / clear do not wait to fire.
+4. For a new reminder, leave the process running until FIRE (banner and/or the due card, plus the topmost splash if the window is hidden) and local TTS if the box has it. Completion: fire happened while the process was up. List / snooze / clear do not wait to fire.
 5. If the user restarts, run `python -m battlebuddy list`. Completion: the reminder is still on disk (`pending` or `fired`) unless they cleared it.
 
 Confirm in one or two lines. Then wait. Do not narrate the wait.
@@ -95,7 +95,7 @@ Confirm in one or two lines. Then wait. Do not narrate the wait.
 ## Pitfalls
 
 - The process must stay running to fire. Ctrl+C keeps the reminder on disk; `list` still shows it.
-- TTS missing: still confirm on screen. FIRE banner / overlay still counts.
+- TTS missing: still confirm on screen. FIRE banner / due card / splash still counts.
 - STT missing: type it. `listen` falls back to typed input. Do not call a cloud recognizer.
 - `--no-wait` saves without watching. Do not use that when the user asked to fire.
 - `clear all` wipes the store. Do it when they said clear all. Confirm the wipe in one line.
