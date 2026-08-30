@@ -299,6 +299,15 @@ class SearchFolderTest(unittest.TestCase):
         self.assertNotIn("people", content_terms(terms))
         self.assertEqual(content_terms(query_terms("tax the people")), ["tax"])
 
+    def test_another_is_weak_on_defeat_ruler(self) -> None:
+        terms = query_terms("How do I defeat another ruler?")
+        self.assertEqual(terms, ["defeat", "another", "ruler"])
+        self.assertEqual(content_terms(terms), ["defeat", "ruler"])
+        self.assertNotIn("another", content_terms(terms))
+        kill = query_terms("How do I kill another ruler?")
+        self.assertEqual(kill, ["kill", "another", "ruler"])
+        self.assertEqual(content_terms(kill), ["kill", "ruler"])
+
     def test_strip_markup_drops_wiki_bold_italic_and_list_stars(self) -> None:
         dirty = "* ''' Spears ''': obtained from Planks and Iron Slabs"
         cleaned = strip_markup(dirty)
@@ -1143,6 +1152,136 @@ class DuplicateBuildingsTaxTest(unittest.TestCase):
         self.assertIn("enables taxing people", picked.lower())
         self.assertIn("5 timber", picked.lower())
         self.assertNotIn("no manor paragraph here", picked.lower())
+
+
+_DEFEAT_Q = "How do I defeat another ruler?"
+_KILL_Q = "How do I kill another ruler?"
+_FAQ_CLAIM = (
+    "Claim regions with influence and establish a Settler’s Camp using funds from your Treasury. "
+    "It costs 1,000 influence to claim an unclaimed region, 2,000 to claim a region owned by the AI lord. "
+    "Influence can be gained from clearing out bandit camps, building a Manor, and collecting tithe at the Manor. "
+    "Army management & battles – Draft villagers, hire and upgrade retinue, and hire mercenaries to fight against bandits and invading lords. "
+    "Claims – Earn influence and lay claims to neighboring lands."
+)
+_GAME_SETUP = (
+    "When ready challenge the Baron for his territories. "
+    "Domination: Eliminate all the other lords by claiming their territory. "
+    "Conquest: Claim all regions to win."
+)
+
+
+class DefeatRulerAskTest(unittest.TestCase):
+    def _store(self, *, faq_claim: bool = True) -> DatabankStore:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = DatabankStore(Path(tmp.name))
+        faq = _FAQ_CLAIM if faq_claim else (
+            "Army management & battles – Draft villagers, hire and upgrade retinue. "
+            "Food types: berries, meat, bread."
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/FAQ",
+            "FAQ - Manor Lords Official Wiki",
+            faq,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Game_setup",
+            "Game setup - Manor Lords Official Wiki",
+            _GAME_SETUP,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Family",
+            "Family - Manor Lords Official Wiki",
+            _FAMILY,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Fishermans_hut",
+            "Fisherman's hut - Manor Lords Official Wiki",
+            _FISHERMAN,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Development",
+            "Development - Manor Lords Official Wiki",
+            _DEVELOPMENT,
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/0.8.050",
+            "0.8.050 - Main - Manor Lords Official Wiki",
+            "Changed tax tooltip. Start of the production notes for this hotfix.",
+        )
+        store.save_page(
+            "Manor Lords",
+            "https://wiki.hoodedhorse.com/Manor_Lords/Burgage_plot",
+            "Burgage plot - Manor Lords Official Wiki",
+            "Blacksmith 8 Planks 25 RW 1 Iron Slab and 1 Plank into 2 Spears.",
+        )
+        return store
+
+    def _assert_claim_answer(self, text: str) -> None:
+        low = text.lower()
+        self.assertTrue("claim" in low and ("territory" in low or "region" in low))
+        blob = text.replace(",", "")
+        self.assertTrue("1000" in blob)
+        self.assertTrue("2000" in blob)
+        self.assertIn("influence", low)
+        self.assertNotIn("fisherman", low)
+        self.assertNotIn("workplaces", low)
+        self.assertNotIn("annual royal tax comes from here", low)
+        self.assertNotIn("blacksmith", low)
+        self.assertNotIn("0.8.050", text)
+        self.assertNotIn("assassinate", low)
+        self.assertLessEqual(
+            len([part for part in text.replace("?", ".").split(".") if part.strip()]),
+            2,
+        )
+
+    def _assert_compiles(self, store: DatabankStore, question: str) -> None:
+        result = ask_or_hunt(store, "Manor Lords", question)
+        shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+        self._assert_claim_answer(result.output())
+        self._assert_claim_answer(shown)
+        self.assertEqual(shown, result.output())
+        self.assertNotIn("Can't find that", shown)
+        self.assertNotIn("Nothing invented", shown)
+
+    def test_defeat_ruler_compiles_claim_and_influence(self) -> None:
+        store = self._store()
+        self._assert_compiles(store, _DEFEAT_Q)
+        self._assert_compiles(store, _DEFEAT_Q.rstrip("?"))
+
+    def test_kill_ruler_compiles_same_claim_line(self) -> None:
+        store = self._store()
+        self._assert_compiles(store, _KILL_Q)
+        self._assert_compiles(store, _KILL_Q.rstrip("?"))
+
+    def test_without_faq_claim_paragraph_is_a_miss(self) -> None:
+        store = self._store(faq_claim=False)
+        store.save_page(
+            "Manor Lords",
+            "http://127.0.0.1:9/wiki/",
+            "Manor Lords Wiki",
+            "Welcome.",
+        )
+        for question in (_DEFEAT_Q, _KILL_Q, _DEFEAT_Q.rstrip("?")):
+            result = ask_or_hunt(store, "Manor Lords", question)
+            shown = present_ask(result, question, store, "Manor Lords", ports=(1,))
+            low = shown.lower()
+            self.assertTrue(
+                "can't find that" in low
+                or "nothing invented" in low
+                or "restate" in low
+            )
+            self.assertNotIn("fisherman", low)
+            self.assertNotIn("workplaces", low)
+            self.assertNotIn("annual royal tax comes from here", low)
+            self.assertNotIn("blacksmith", low)
+            self.assertNotIn("family occupies", low)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,9 @@ _START_WORDS = {"start", "begin", "setup"}
 _PROD_WORDS = {"production", "produce", "producing"}
 _HOWTO_WORDS = {
     "craft",
+    "defeat",
     "how",
+    "kill",
     "make",
     "obtain",
     "produce",
@@ -31,6 +33,18 @@ _HOWTO_WORDS = {
     "tax",
     "taxing",
 }
+_CLAIM_VERBS = frozenset({"claim", "defeat", "eliminate", "kill"})
+_CLAIM_NOUNS = frozenset({"baron", "enemy", "lord", "ruler"})
+_CLAIM_ALIASES = ("claim", "eliminate", "influence", "baron")
+_CLAIM_SCRAPS = (
+    "annual royal tax",
+    "blacksmith",
+    "burgage",
+    "family occupies",
+    "fisherman",
+    "version history",
+    "workplaces",
+)
 _ENABLE_WORDS = {"allow", "allows", "enable", "enables", "unlock", "unlocks"}
 _PASSIVE_ENABLED = re.compile(r"\bif\s+enabled\b", re.IGNORECASE)
 _REQUIRE_WORDS = {"need", "needed", "needs", "require", "required", "requires"}
@@ -152,6 +166,34 @@ def is_howto_question(question: str) -> bool:
     return bool(words & _HOWTO_WORDS)
 
 
+def is_claim_question(question: str) -> bool:
+    """kill/defeat + ruler/lord/baron/enemy. Wispr '?' is optional."""
+    words = set(_WORD.findall((question or "").lower()))
+    return bool(words & _CLAIM_VERBS) and bool(words & _CLAIM_NOUNS)
+
+
+def claim_search_terms(question: str) -> list[str]:
+    """Wiki nouns for spoken kill/defeat a ruler. Pages say claim/eliminate."""
+    if not is_claim_question(question):
+        return []
+    return list(_CLAIM_ALIASES)
+
+
+def expand_search_terms(question: str, terms: list[str]) -> list[str]:
+    """Add claim/eliminate/influence/baron when the spoken words miss the wiki."""
+    extras = claim_search_terms(question)
+    if not extras:
+        return list(terms)
+    seen = {item.lower() for item in terms}
+    out = list(terms)
+    for item in extras:
+        if item.lower() in seen:
+            continue
+        seen.add(item.lower())
+        out.append(item)
+    return out
+
+
 def recipe_sentence(text: str, nouns: list[str] | None = None) -> str | None:
     """Short recipe line. Table produce first, then a capped prose sentence."""
     cleaned = strip_markup(text)
@@ -248,6 +290,36 @@ def compile_howto_line(texts: list[str], nouns: list[str] | None = None) -> str 
             return line
     if _sentence_count(first) <= 2 and _howto_short(first):
         return first
+    return None
+
+
+def compile_claim_line(texts: list[str]) -> str | None:
+    """Eliminate-by-claiming plus influence cost. Extract, do not invent."""
+    cost: str | None = None
+    eliminate: str | None = None
+    claim_regions: str | None = None
+    for text in texts:
+        cleaned = strip_markup(text)
+        if not cleaned:
+            continue
+        for sent in _sentences(cleaned):
+            if _is_claim_scrap(sent):
+                continue
+            if cost is None and _is_claim_cost(sent):
+                cost = sent.strip()
+            elif eliminate is None and _is_eliminate_claim(sent):
+                eliminate = sent.strip()
+            elif claim_regions is None and _is_claim_regions(sent):
+                claim_regions = sent.strip()
+    if cost is None:
+        return None
+    first = eliminate or claim_regions
+    if first and first.lower() != cost.lower():
+        line = f"{first} {cost}"
+        if _sentence_count(line) <= 2 and _howto_short(line):
+            return line
+    if _sentence_count(cost) <= 2 and _howto_short(cost):
+        return cost
     return None
 
 
@@ -478,6 +550,41 @@ def _is_cost_sentence(sent: str) -> bool:
     if not _COST_MARK.search(sent or ""):
         return False
     return 0 < len(sent.split()) <= 20
+
+
+def _is_claim_scrap(sent: str) -> bool:
+    low = (sent or "").lower()
+    return any(marker in low for marker in _CLAIM_SCRAPS)
+
+
+def _is_claim_cost(sent: str) -> bool:
+    """1,000 unclaimed / 2,000 AI-owned. The FAQ claim paragraph."""
+    words = set(_cue_words(sent))
+    if "influence" not in words:
+        return False
+    if not words & {"claim", "claims", "claiming"}:
+        return False
+    blob = (sent or "").lower().replace(",", "")
+    return "1000" in blob and "2000" in blob
+
+
+def _is_eliminate_claim(sent: str) -> bool:
+    """Eliminate other lords by claiming territory. Not a personal kill."""
+    words = set(_cue_words(sent))
+    if "eliminate" not in words and "eliminates" not in words:
+        return False
+    if not words & {"lord", "lords", "territory", "territories", "region", "regions"}:
+        return False
+    return bool(words & {"claim", "claims", "claiming"})
+
+
+def _is_claim_regions(sent: str) -> bool:
+    words = set(_cue_words(sent))
+    if not words & {"claim", "claims", "claiming"}:
+        return False
+    if not words & {"region", "regions", "territory", "territories", "land", "lands"}:
+        return False
+    return "influence" in words or bool(words & {"lord", "lords", "baron"})
 
 
 def _is_require_sentence(sent: str, nouns: list[str]) -> bool:

@@ -16,6 +16,7 @@ from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import (
     KNOWN_WIKIS,
     ask_or_hunt,
+    fallback_title_urls,
     infer_wiki_from_url,
     rank_search_hits,
     search_variants,
@@ -94,6 +95,18 @@ class RankVariantTest(unittest.TestCase):
     def test_search_variants_are_singular_and_plural(self) -> None:
         self.assertEqual(search_variants(["spear"]), ["spear", "spears"])
         self.assertEqual(search_variants(["spears"]), ["spears", "spear"])
+
+    def test_claim_title_fallbacks_when_spoken_ruler_words(self) -> None:
+        home = KNOWN_WIKIS["manor lords"]
+        urls = fallback_title_urls(home, ["defeat", "ruler"])
+        joined = " ".join(urls)
+        self.assertIn("/FAQ", joined)
+        self.assertIn("Game_setup", joined)
+        self.assertIn("/Warfare", joined)
+        self.assertIn("/Regions", joined)
+        spear = " ".join(fallback_title_urls(home, ["spear"]))
+        self.assertNotIn("/FAQ", spear)
+        self.assertNotIn("Game_setup", spear)
 
     def test_military_items_outranks_translation_and_approval(self) -> None:
         hits = [
