@@ -2,39 +2,62 @@
 
 Speak it once. It holds the line.
 
-**No accounts.** No sign-up. No login. No email. No Steam key. No cloud.
+**No accounts.** No sign-up. No login. No email. No Steam key. No cloud. No Google.
 
-External memory for veterans in long game sessions. For the forgotten 99%, we rise.
+External memory for veterans in long strategy and survival sessions. You speak or type a check. Battle Buddy holds the flame on your disk. When the clock hits, it FIREs. For the forgotten 99%. Active Stoicism. PHYRE.
 
-## Windows — double-click (no Python, no account)
+## What it does
 
-Double-click `BattleBuddy.exe` or run `BattleBuddy-Setup.exe`. The high-contrast UI opens. No login. pip is not required to run the exe.
+Four beats. No cloud. Nothing invented.
 
-Setup is per-user, no admin. Shortcuts: **Battle Buddy** on the Desktop and Start Menu. State stays in `%USERPROFILE%\.battlebuddy`. Uninstall is allowed.
+1. **Remind.** Voice or typed reminder that survives restart. State lives on disk under `%USERPROFILE%\.battlebuddy`. FIRE at due time. Local TTS if the box has it.
+2. **SCAN.** Live-captures the running game from local processes (Steam/Epic folder or Unreal shipping). No Steam API.
+3. **Wiki seed.** First sight of a new empty-folder game fetches the top 3 public wiki pages (DuckDuckGo HTML `{game} wiki`, public GET, no account).
+4. **ASK.** Answers from those local pages. Compile a real how-to or miss. Nothing invented.
 
-On a Windows box you can build those files with `.\scripts\build-windows.ps1` (PyInstaller is build-only). That script also downloads a tiny local CPU model (SmolLM2-360M Instruct Q4, Apache-2.0) plus `llama-server` into `dist\BattleBuddy\llm\`. Not in git. No Ollama required. If Hermes/Ollama is already on 11434 or LM Studio on 1234, ASK uses that first. If the bundled file is missing or cold, ASK still prints the extracted recipe. Reminder loop does not need the model.
+## The surface
 
-Do not build the exe on Linux.
+High-contrast veteran UI: black, gold, cream, scarlet **SUBMIT** / **FIRE**. ADHD-friendly large targets. One primary action. Low noise.
 
-## Run it from source — Windows (PowerShell or cmd)
+## How to run
 
-Python 3.10+. No signup. Clone, run, done. Same loop as the exe.
+**Windows:** double-click `BattleBuddy-Setup.exe`. The UI opens. No login. pip is not required to run the exe.
 
-```text
-git clone https://github.com/wyldephyre/battle-buddy.git
-cd battle-buddy
-python -m battlebuddy remind me in 1 minute to check food stores
-```
-
-Stay in that window. It confirms immediately, then fires in 1 minute (visual banner; local TTS if the box has it).
-
-High-contrast UI from a source clone (same folder, no account):
+**From a clone:**
 
 ```text
 python -m battlebuddy ui
 ```
 
-List, snooze, and clear (same on-disk memory):
+One reminder from the CLI (no account):
+
+```text
+python -m battlebuddy remind me in 1 minute to check food stores
+```
+
+Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m battlebuddy list` still shows it.
+
+## Yard
+
+**Hackyard Yard #1.** Theme: no accounts. MIT.
+
+We are not asking for a seat at their table. We built a revolution instead.
+
+**Oorah.**
+
+---
+
+## Appendix
+
+Clone path if you want source instead of the exe. Python 3.10+. No signup.
+
+```text
+git clone https://github.com/wyldephyre/battle-buddy.git
+cd battle-buddy
+python -m battlebuddy ui
+```
+
+Same on-disk memory for list / snooze / clear:
 
 ```text
 python -m battlebuddy list
@@ -43,93 +66,37 @@ python -m battlebuddy clear reminder about mines
 python -m battlebuddy clear all
 ```
 
-macOS / Linux: same commands. venv optional. Typed fallback always works even if the mic does not. No cloud STT.
+macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State file: `%USERPROFILE%\.battlebuddy\memory.json` on Windows, `~/.battlebuddy/memory.json` on macOS/Linux. Not committed. Restart and `list` still shows it.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Not committed.
 
-Databank (one box on the right): paste a public wiki URL or type a game question, hit **Submit**. A public http/https URL does a GET, strips the page to text, and saves it under `%USERPROFILE%\.battlebuddy\databanks\<game-slug>\` (Manor Lords → `manor-lords`). Anything else is ASK. No game detected → `general`. First time detect names a game with an empty folder, Battle Buddy searches DuckDuckGo HTML (no account, no key) for `{game} wiki`, keeps the top 3 wiki links, and fetches them in the background. Reminders stay live. `sources.json` lists the URLs. Fetched pages stay on your disk. Not committed. No login. No credentials. ASK searches those local files only — keyword snippets, no cloud model, no invented answer. One question, one output. If the folder is empty, paste a wiki link first.
+### Windows build
 
----
+On a Windows box: `.\scripts\build-windows.ps1` (PyInstaller is build-only). Do not build the exe on Linux. pip is not required to run the shipped exe.
 
-## What this is
+### Hermes (optional)
 
-A voice-first cognitive prosthetic for veterans with ADHD, PTSD, and TBI who play complex strategy and survival games. You say “remind me in 15 minutes to check food stores.” It confirms. It fires. It survives a restart. State lives on your disk.
-
-This is a **Hermes Desktop skill pack** plus a standalone launch of the same modules so a stranger can run the loop without installing Hermes.
-
-Jessica is not this app. Jessica stays the XO. Battle Buddy is a specialist tool.
-
-**Hackyard Yard #1 — Escape Velocity.** Theme: no accounts.
-
-## What this is not
-
-- No sign-up. No login. No email.
-- No Google account. No Steam API key. No SuperGrok OAuth required to use it.
-- No Zo email-triage product. That is a different tool.
-- No wellness coach. No moralizing.
-
-## Hermes skill (product runtime)
-
-1. Install [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/getting-started/installation) (official installer).
-2. Point Hermes at a **local** 2–3B (Ollama / LM Studio / llama.cpp). Empty API key. No provider signup.
-3. Clone this repo. Install the skill:
+Same reminder loop as a [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/getting-started/installation) skill. Local 2–3B. Empty API key.
 
 ```text
 hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 ```
 
-4. From the repo root, say or type: `Remind me in 1 minute to check food stores.`
+Jessica is not this app.
 
-Same modules as the standalone commands above. UI: `python -m battlebuddy ui`. One primary action: SUBMIT. SPEAK appears only if local STT exists. TTS is optional — if the box has no voice, the due reminder card still goes FIRE. Hidden window still opens the topmost splash.
-
-## System requirements
-
-**Floor (reminder loop, typed + local TTS):** Windows 10/11, Python 3.10+, mic optional, 8 GB RAM.
-
-**Recommended (Hermes + local 2–3B):** NVIDIA 8 GB VRAM (12 GB happier), 16 GB RAM. If the box is below that, skip the local LLM. The reminder loop must still work.
-
-## Repo map (this slice)
+### Repo map
 
 ```text
-skills/battle-buddy/SKILL.md   Hermes skill: remind, list, snooze, clear
-battlebuddy/memory/            local JSON store
+skills/battle-buddy/SKILL.md   Hermes skill
+battlebuddy/memory/            local JSON
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
-battlebuddy/game_detect/       local process scan. No Steam.
-battlebuddy/databank/          paste URL, public GET, save text. ASK searches local files only.
+battlebuddy/game_detect/       local process SCAN. No Steam API.
+battlebuddy/databank/          public wiki GET, local ASK
 battlebuddy/ui/                high-contrast window
-battlebuddy/win_entry.py       windowed exe entry (same as `python -m battlebuddy ui`)
-battlebuddy/__main__.py        typed CLI
-BattleBuddy.spec               PyInstaller onedir spec
+BattleBuddy.spec               PyInstaller onedir
 installer/BattleBuddy.iss      per-user Inno Setup (no admin)
-scripts/build-windows.ps1      Windows exe + setup build
-docs/                          PRD, agent loop, kickoff commands
-.cursor/rules/                 Cursor project rules
-AGENTS.md                      Standing orders for every agent
+scripts/build-windows.ps1      Windows exe + setup
 ```
 
-## Agent loop
-
-Captain Phyre runs three surfaces. Read `docs/DEV-LOOP.md` and `docs/KICKOFF-COMMANDS.md` before writing a line.
-
-| Surface | Job |
-|---|---|
-| This Grok (project / Business) | Scope, theme police, language, demo plan |
-| Grok Bot | Implementation orders, tight loops, ship checklist |
-| Cursor | Files on disk. Apply diffs. Run the app |
-
-One objective at a time.
-
-## License
-
-MIT. See `LICENSE`.
-
-## Name
-
-Working product name: Battle Buddy. Trademark check is parked until after the Yard.
-
----
-
-We are not asking for a seat at their table. We built a revolution instead.
-
-**Oorah.**
+MIT. See `LICENSE`. Trademark check parked.

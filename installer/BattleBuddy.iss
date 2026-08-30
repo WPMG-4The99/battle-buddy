@@ -2,7 +2,7 @@
 ; PrivilegesRequired=lowest. State stays in %USERPROFILE%\.battlebuddy.
 
 #ifndef MyAppVersion
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "1.0.0"
 #endif
 
 #define MyAppName "Battle Buddy"

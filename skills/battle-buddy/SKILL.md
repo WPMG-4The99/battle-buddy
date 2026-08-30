@@ -1,7 +1,7 @@
 ---
 name: battle-buddy
 description: Hold a timed reminder on disk, fire it locally, then list, snooze, or clear it.
-version: 0.3.0
+version: 1.0.0
 author: Captain Phyre (wyldephyre)
 license: MIT
 platforms: [linux, macos, windows]
