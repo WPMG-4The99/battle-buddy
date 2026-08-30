@@ -276,14 +276,30 @@ class BattleBuddyApp:
             bg=_BG,
         ).pack(pady=(4, 8))
 
+        game_row = tk.Frame(parent, bg=_BG)
+        game_row.pack(fill="x", pady=(0, 10))
         self.game_line = tk.Label(
-            parent,
+            game_row,
             text=status_line(None),
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
+            anchor="w",
         )
-        self.game_line.pack(pady=(0, 10))
+        self.game_line.pack(side="left", fill="x", expand=True)
+        self.scan_btn = tk.Button(
+            game_row,
+            text="SCAN",
+            font=("Arial", 16, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._scan_now,
+        )
+        self.scan_btn.pack(side="right", ipadx=16, ipady=10)
 
         self._field_caption(parent, "Reminder", "Lock a time reminder here")
 
@@ -925,19 +941,36 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _scan_now(self) -> None:
+        """Immediate rescan. Ignores the 5s poll throttle. Fire stays live."""
+        try:
+            self.game_line.config(text="Scanning.")
+        except Exception:
+            pass
+        self._start_game_scan(prefer_switch=True)
+
     def _maybe_scan_game(self) -> None:
         """Refresh the quiet game line. Never blocks fire or countdown."""
         self._detect_ticks += 1
         if self._detect_ticks != 1 and self._detect_ticks % _DETECT_EVERY != 0:
             return
-        if self._game_busy:
+        self._start_game_scan(prefer_switch=False)
+
+    def _start_game_scan(self, prefer_switch: bool) -> None:
+        if self._game_busy and not prefer_switch:
             return
         self._game_busy = True
-        threading.Thread(target=self._scan_game_worker, daemon=True).start()
+        current = self._game_name
+        threading.Thread(
+            target=self._scan_game_worker,
+            args=(prefer_switch, current),
+            daemon=True,
+        ).start()
 
-    def _scan_game_worker(self) -> None:
+    def _scan_game_worker(self, prefer_switch: bool = False, current: str | None = None) -> None:
         try:
-            name = detect_game()
+            skip = current if prefer_switch else None
+            name = detect_game(prefer_other=skip)
         except Exception:
             name = None
         try:
