@@ -12,6 +12,7 @@ from battlebuddy.databank.clean import (
     is_claim_question,
     is_howto_question,
     is_livestock_question,
+    is_pack_question,
     is_patch_title,
     strip_markup,
 )
@@ -50,6 +51,8 @@ _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
 _TAX_FALLBACKS = ("Buildings", "FAQ", "Manor")
 _CLAIM_FALLBACKS = ("FAQ", "Game_setup", "Warfare", "Regions")
 _LIVESTOCK_FALLBACKS = ("Burgage_plot", "Buildings", "Livestock_trading_post")
+_PACK_FALLBACKS = ("Pack_station", "Buildings", "FAQ")
+_PACK_HINTS = frozenset({"mule", "mules", "pack", "route", "routes"})
 _LIVESTOCK_HINTS = frozenset(
     {
         "animal",
@@ -251,6 +254,8 @@ def local_covers(
         return True
     if is_livestock_question(question) and is_howto_question(question):
         return False
+    if is_pack_question(question) and is_howto_question(question):
+        return False
     nouns = search_variants(content_terms(query_terms(question)))
     best = result.hits[0]
     if _militia_or_approval(best) and not _noun_and_craft(best.title, best.snippet, nouns):
@@ -363,9 +368,9 @@ def search_wiki_hits(home: WikiHome, terms: list[str]) -> list[SearchHit]:
             continue
         if fetched.kind == "404":
             api_missing = True
-    if hits and not (api_missing or _wants_claim_fallback(variants)):
+    if hits and not (api_missing or _wants_title_fallback(variants)):
         return hits
-    if api_missing or _wants_claim_fallback(variants):
+    if api_missing or _wants_title_fallback(variants):
         for url in fallback_title_urls(home, variants):
             if url in seen:
                 continue
@@ -439,9 +444,15 @@ def fallback_title_urls(home: WikiHome, terms: list[str]) -> list[str]:
         extras.extend(_CLAIM_FALLBACKS)
     if bag & _LIVESTOCK_HINTS:
         extras.extend(_LIVESTOCK_FALLBACKS)
+    if bag & _PACK_HINTS:
+        extras.extend(_PACK_FALLBACKS)
     for term in list(terms) + extras:
         title = term[:1].upper() + term[1:] if term[:1].islower() else term
-        if term in _TAX_FALLBACKS or term in _LIVESTOCK_FALLBACKS:
+        if (
+            term in _TAX_FALLBACKS
+            or term in _LIVESTOCK_FALLBACKS
+            or term in _PACK_FALLBACKS
+        ):
             title = term
         built = article_url(home, title)
         if built is None or not same_origin(built, home) or built in seen:
@@ -615,9 +626,9 @@ def _has_any_word(blob: str, words: list[str]) -> bool:
     return any(word in bag for word in words)
 
 
-def _wants_claim_fallback(terms: list[str]) -> bool:
+def _wants_title_fallback(terms: list[str]) -> bool:
     bag = {item.lower() for item in terms}
-    return bool(bag & _CLAIM_HINTS)
+    return bool(bag & _CLAIM_HINTS) or bool(bag & _PACK_HINTS)
 
 
 def _plain_snippet(raw: object) -> str:
