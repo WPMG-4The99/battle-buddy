@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlparse
 
-from battlebuddy.databank.clean import strip_markup
+from battlebuddy.databank.clean import is_patch_title, strip_markup
 from battlebuddy.databank.fetch import fetch_page, normalize_url
 from battlebuddy.databank.search import (
     AskResult,
@@ -34,8 +34,8 @@ _LANG_SUFFIX = (
     "/uk",
     "/el",
 )
-# ASK-snippet how-to coverage only. Lone "blacksmith" on a militia sidebar is not a recipe.
-_STRONG_CRAFT_WORDS = ("obtained", "produced", "backyard")
+# ASK-snippet how-to coverage only. Lone "blacksmith" or "produced" is not a recipe.
+_STRONG_CRAFT_WORDS = ("obtained",)
 _STRONG_CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _HOWTO = {"how", "start", "produce", "production", "make", "craft", "obtain"}
 _NO_WIKI_MATCH = "No match on the wiki. Nothing invented."
@@ -455,6 +455,8 @@ def _search_hit_score(hit: SearchHit, nouns: list[str]) -> int:
         score += 10
     if has_noun and has_craft:
         score += 50
+    if is_patch_title(hit.title):
+        score -= 80
     if _has_lang_suffix(hit.title) or _has_lang_suffix(hit.url):
         score -= 20
     if "militia" in blob and not has_craft:
@@ -467,6 +469,8 @@ def _search_hit_score(hit: SearchHit, nouns: list[str]) -> int:
 def _ask_hit_score(hit: Hit, nouns: list[str]) -> int:
     blob = f"{hit.title} {hit.snippet}".lower()
     score = hit.score
+    if is_patch_title(hit.title):
+        score -= 80
     if _noun_and_craft(hit.title, hit.snippet, nouns):
         score += 50
     if "militia" in blob and not _has_craft(blob):

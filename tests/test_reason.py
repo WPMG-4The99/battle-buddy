@@ -109,10 +109,31 @@ class ReasonerHttpTest(unittest.TestCase):
             "Manor Lords",
             ports=(self.port,),
         )
-        self.assertEqual(shown, _ANSWER)
+        self.assertIn("obtained", shown.lower())
+        self.assertIn("Blacksmith", shown)
+        self.assertNotEqual(shown, _ANSWER)
         for path in self.hits:
             parsed = urlparse(path)
             self.assertFalse(parsed.netloc.endswith("openai.com"))
+
+    def test_local_llm_runs_only_when_extract_is_empty(self) -> None:
+        self.store.save_page(
+            "Manor Lords",
+            "https://example.com/wiki/food",
+            "Food",
+            "Check the granary before winter. Berries spoil in the rain.",
+        )
+        question = "where is the granary"
+        result = ask_pages(self.store, "Manor Lords", question)
+        shown = present_ask(
+            result,
+            question,
+            self.store,
+            "Manor Lords",
+            ports=(self.port,),
+        )
+        self.assertEqual(shown, _ANSWER)
+        self.assertTrue(any(item.startswith("/v1/chat/completions") for item in self.hits))
 
     def test_failed_local_call_uses_cleaned_recipe(self) -> None:
         self.server.RequestHandlerClass = _make_handler(self.hits, self.bodies, fail=True)
@@ -158,7 +179,8 @@ class ReasonerHttpTest(unittest.TestCase):
             "Manor Lords",
             ports=(1, 2, 3, self.port),
         )
-        self.assertEqual(shown, _ANSWER)
+        self.assertIn("obtained", shown.lower())
+        self.assertNotEqual(shown, _ANSWER)
         self.server.RequestHandlerClass = _make_handler(
             self.hits, self.bodies, fail=True
         )

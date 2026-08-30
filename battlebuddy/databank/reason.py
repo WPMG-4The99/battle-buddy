@@ -13,8 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from battlebuddy.databank.clean import strip_markup
-from battlebuddy.databank.search import AskResult, page_files
+from battlebuddy.databank.clean import is_patch_title, strip_markup
+from battlebuddy.databank.search import AskResult, compile_ask_line, page_files
 from battlebuddy.databank.store import DatabankStore
 
 # Probe Hermes/Ollama, LM Studio, generic llama.cpp, then the bundled CPU server.
@@ -50,7 +50,10 @@ def present_ask(
     game: str | None = None,
     ports: tuple[int, ...] | None = None,
 ) -> str:
-    """Cleaned snippet, or a short local answer if a loopback server is up."""
+    """Start-path or recipe extract first. Local LLM only when extract is empty."""
+    extracted = compile_ask_line(question, _ask_texts(result, store, game))
+    if extracted:
+        return extracted
     cleaned = result.output()
     if store is None or not (question or "").strip() or not result.hits:
         return cleaned
@@ -59,6 +62,23 @@ def present_ask(
         return cleaned
     answered = local_answer(question, page, ports=ports)
     return answered or cleaned
+
+
+def _ask_texts(
+    result: AskResult,
+    store: DatabankStore | None,
+    game: str | None,
+) -> list[str]:
+    """Full saved pages when we have a store. Skip patch-note titles."""
+    texts: list[str] = []
+    for hit in result.hits:
+        if is_patch_title(hit.title):
+            continue
+        body = ""
+        if store is not None:
+            body = _page_text_for_title(store, game, hit.title)
+        texts.append(body or f"{hit.title}\n{strip_markup(hit.snippet)}")
+    return texts
 
 
 def top_page_text(
@@ -71,6 +91,22 @@ def top_page_text(
     if not result.hits:
         return ""
     title = result.hits[0].title.strip()
+    found = _page_text_for_title(store, game, title, cap)
+    if found:
+        return found
+    return strip_markup(result.hits[0].snippet)[:cap]
+
+
+def _page_text_for_title(
+    store: DatabankStore,
+    game: str | None,
+    title: str,
+    cap: int = PAGE_CAP,
+) -> str:
+    """Saved page body for a hit title, markup stripped. Empty if missing."""
+    wanted = (title or "").strip()
+    if not wanted:
+        return ""
     folders = [store.folder(game)]
     seen = {folders[0].resolve()}
     for extra in store.list_saved_folders():
@@ -86,12 +122,12 @@ def top_page_text(
             except OSError:
                 continue
             first = (body.splitlines()[0].strip() if body else "") or "untitled"
-            if first != title:
+            if first != wanted:
                 continue
             parts = body.split("\n", 2)
             text = parts[2] if len(parts) > 2 else body
-            return strip_markup(text)[:cap]
-    return strip_markup(result.hits[0].snippet)[:cap]
+            return f"{first}\n{strip_markup(text)[:cap]}"
+    return ""
 
 
 def bundled_server_argv(

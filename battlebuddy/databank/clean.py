@@ -11,9 +11,33 @@ _WIKI_TICKS = re.compile(r"'{2,}")
 _LIST_STAR = re.compile(r"(?m)^\s*\*\s+")
 _WORD = re.compile(r"[a-z0-9]+")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
-_CRAFT_WORDS = ("obtained", "produced", "backyard")
+# Prose recipe only. "produced" matches patch notes. Lone "backyard" is a definition.
+_CRAFT_WORDS = ("obtained",)
 _CRAFT_PAIRS = (("blacksmiths", "workshop"), ("blacksmith", "workshop"))
 _MAX_RECIPE_WORDS = 30
+_START_WORDS = {"start", "begin", "setup"}
+_PROD_WORDS = {"production", "produce", "producing"}
+_PATCH_MARKERS = (
+    "patch note",
+    "patch notes",
+    "hotfix",
+    "changelog",
+    "version history",
+    "update notes",
+)
+_VERSION_TITLE = re.compile(r"^\s*\d+\.\d+(?:\.\d+)?\b")
+_TIER_AT = re.compile(
+    r"\b(?:tier|t)\s*([123])\s+backyards?\b|\blevel\s+([123])\s+enables\b",
+    re.IGNORECASE,
+)
+_LEVEL_ANY = re.compile(r"\blevel\s+([123])\b", re.IGNORECASE)
+_COST_ROW = re.compile(
+    r"(?P<planks>\d+)\s+[Pp]lanks?\s+(?P<rw>\d+)\s+(?:RW|[Rr]egional\s+[Ww]ealth)\b"
+)
+_COST_PAREN = re.compile(
+    r"\((?P<planks>\d+)\s+planks?,?\s+(?P<rw>\d+)\s+regional\s+wealth\)",
+    re.IGNORECASE,
+)
 # Flattened wiki produce rows: "1 Iron Slab and 1 Plank into 2 Spears"
 # No IGNORECASE — product stays capitalized so trailing "or" is not swallowed.
 _PRODUCE = re.compile(
@@ -44,6 +68,14 @@ _NOT_BUILDING = {
     "requires",
     "rw",
     "tier",
+    "level",
+    "levels",
+    "indicates",
+    "possibility",
+    "changed",
+    "order",
+    "goods",
+    "main",
 }
 
 
@@ -56,6 +88,26 @@ def strip_markup(text: str) -> str:
     raw = _WIKI_TICKS.sub(" ", raw)
     raw = _LIST_STAR.sub(" ", raw)
     return " ".join(raw.split())
+
+
+def is_patch_title(title: str) -> bool:
+    """Version-history / patch / hotfix titles. Not a how-to page."""
+    raw = title or ""
+    text = raw.strip().lower()
+    if not text:
+        return False
+    if any(marker in text for marker in _PATCH_MARKERS):
+        return True
+    return bool(_VERSION_TITLE.match(raw))
+
+
+def is_start_question(question: str) -> bool:
+    """how + start/set up/begin + production. Wispr '?' is optional."""
+    words = set(_WORD.findall((question or "").lower()))
+    if "how" not in words:
+        return False
+    started = bool(words & _START_WORDS) or ("set" in words and "up" in words)
+    return started and bool(words & _PROD_WORDS)
 
 
 def recipe_sentence(text: str, nouns: list[str] | None = None) -> str | None:
@@ -73,6 +125,31 @@ def recipe_sentence(text: str, nouns: list[str] | None = None) -> str | None:
     if _is_recipe(cleaned, needed) and _short_enough(cleaned):
         return cleaned
     return None
+
+
+def start_path_sentence(text: str, nouns: list[str] | None = None) -> str | None:
+    """Burgage level + backyard cost + produce row. Extract, do not invent."""
+    cleaned = strip_markup(text)
+    if not cleaned:
+        return None
+    needed = [item.lower() for item in (nouns or []) if item]
+    recipe = _table_recipe(cleaned, needed)
+    if not recipe or ":" not in recipe:
+        return None
+    building = recipe.split(":", 1)[0].strip()
+    if not building or "burgage" not in cleaned.lower():
+        return None
+    level = _level_for_building(cleaned, building)
+    if level is None:
+        return None
+    cost = _extension_cost(cleaned, building)
+    shop = f"{building} backyard"
+    if cost:
+        shop = f"{shop} ({cost})"
+    line = f"Upgrade a burgage plot to level {level} and add the {shop}. {recipe}"
+    if not _short_enough(line):
+        return None
+    return line
 
 
 def _table_recipe(text: str, nouns: list[str]) -> str | None:
@@ -104,6 +181,44 @@ def _table_recipe(text: str, nouns: list[str]) -> str | None:
     if not _short_enough(line):
         return None
     return line
+
+
+def _level_for_building(text: str, building: str) -> int | None:
+    """Last Tier/T/Level header before the shop, or a burgage level mention."""
+    lowered = (text or "").lower()
+    key = (building or "").lower().split("'")[0]
+    pos = lowered.find(key) if key else -1
+    last: int | None = None
+    for match in _TIER_AT.finditer(text or ""):
+        if pos >= 0 and match.start() > pos:
+            break
+        digit = match.group(1) or match.group(2)
+        if digit:
+            last = int(digit)
+    if last is not None:
+        return last
+    if "burgage" not in lowered:
+        return None
+    found = _LEVEL_ANY.search(text or "")
+    if found:
+        return int(found.group(1))
+    return None
+
+
+def _extension_cost(text: str, building: str) -> str | None:
+    """`Blacksmith 8 Planks 25 RW` or `(8 planks, 25 regional wealth)`."""
+    raw = text or ""
+    root = (building or "").split("'")[0]
+    if not root:
+        return None
+    for match in _COST_ROW.finditer(raw):
+        prefix = raw[max(0, match.start() - 48) : match.start()]
+        if root.lower() in prefix.lower():
+            return f"{match.group('planks')} planks, {match.group('rw')} regional wealth"
+    paren = _COST_PAREN.search(raw)
+    if paren and root.lower() in raw.lower():
+        return f"{paren.group('planks')} planks, {paren.group('rw')} regional wealth"
+    return None
 
 
 def _nearest_building(prefix: str) -> str | None:
