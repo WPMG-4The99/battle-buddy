@@ -22,6 +22,7 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User wants confirmation now and a fire later (visual + local TTS if the box has it)
 - User wants the high-contrast window
 - User asks to list, snooze, or clear reminders (including after a restart)
+- User starts or stops the 15/5 hygiene loop ("start hygiene", "start pomodoro", "15 5 hygiene")
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, or wellness coaching.
 
@@ -57,6 +58,8 @@ terminal(command="python -m battlebuddy list")
 terminal(command="python -m battlebuddy snooze food stores 5 minutes")
 terminal(command="python -m battlebuddy clear reminder about mines")
 terminal(command="python -m battlebuddy clear all")
+terminal(command="python -m battlebuddy --no-wait hygiene start")
+terminal(command="python -m battlebuddy hygiene stop")
 ```
 
 Local listen if STT exists, otherwise it asks for type:
@@ -79,8 +82,10 @@ Never send audio to a cloud. Never ask for an API key.
 | Snooze food stores 5 minutes | `python -m battlebuddy snooze food stores 5 minutes` |
 | Clear reminder about mines | `python -m battlebuddy clear reminder about mines` |
 | Clear all | `python -m battlebuddy clear all` |
+| Start hygiene (15 work / 5 break) | `python -m battlebuddy hygiene start` |
+| Stop hygiene | `python -m battlebuddy hygiene stop` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Do not commit it.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Do not commit them.
 
 ## Procedure
 
@@ -98,6 +103,7 @@ Confirm in one or two lines. Then wait. Do not narrate the wait.
 - TTS missing: still confirm on screen. FIRE banner / due card / splash still counts.
 - STT missing: type it. `listen` falls back to typed input. Do not call a cloud recognizer.
 - `--no-wait` saves without watching. Do not use that when the user asked to fire.
+- `hygiene start` without `--no-wait` stays in the window so the 15/5 chain can FIRE. Ctrl+C keeps the loop on disk until `hygiene stop`.
 - `clear all` wipes the store. Do it when they said clear all. Confirm the wipe in one line.
 - Empty API key is correct. Do not prompt for a provider account.
 
@@ -109,5 +115,6 @@ Confirm in one or two lines. Then wait. Do not narrate the wait.
 - `snooze food stores 5 minutes` shifts due and confirms
 - `clear reminder about mines` deletes the match and confirms
 - `clear all` wipes and confirms
+- `start hygiene` / `hygiene start` locks a 15-minute work block; stop clears pending hygiene
 
 Oorah.

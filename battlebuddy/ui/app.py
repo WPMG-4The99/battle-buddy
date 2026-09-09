@@ -22,6 +22,7 @@ from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
+from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
@@ -328,7 +329,7 @@ class BattleBuddyApp:
             expand=True,
             fill="x",
             ipady=10,
-            padx=(0, 8) if speak_on else 0,
+            padx=(0, 8),
         )
         if speak_on:
             self.speak_btn = tk.Button(
@@ -343,9 +344,28 @@ class BattleBuddyApp:
                 cursor="hand2",
                 command=self._speak,
             )
-            self.speak_btn.pack(side="left", expand=True, fill="x", ipady=10)
+            self.speak_btn.pack(
+                side="left",
+                expand=True,
+                fill="x",
+                ipady=10,
+                padx=(0, 8),
+            )
         else:
             self.speak_btn = None
+        self.hygiene_btn = tk.Button(
+            actions,
+            text="HYGIENE",
+            font=("Arial", 16, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._toggle_hygiene,
+        )
+        self.hygiene_btn.pack(side="left", expand=True, fill="x", ipady=10)
 
         self.status = tk.Label(
             parent,
@@ -705,11 +725,29 @@ class BattleBuddyApp:
             return
         self._wipe_armed = False
         self.clear_all_btn.config(text="CLEAR ALL")
-        if result.kind == "remind" and result.reminder is not None:
+        if result.kind in {"remind", "hygiene_start"} and result.reminder is not None:
             due = _local_stamp(result.reminder.due_at)
             self.status.config(text=f"{result.message}  Due {due}.")
             self.entry.delete(0, "end")
             self.entry.focus_set()
+        else:
+            self.status.config(text=result.message)
+            if result.kind in {"hygiene_stop"}:
+                self.entry.delete(0, "end")
+                self.entry.focus_set()
+        if result.speak:
+            speak_async(result.speak)
+        self._refresh_list()
+
+    def _toggle_hygiene(self) -> None:
+        """One gold control. Start the 15/5 loop, or stop it."""
+        line = "stop hygiene" if hygiene_is_active(self.engine) else "start hygiene"
+        result = run_line(self.engine, line)
+        self._wipe_armed = False
+        self.clear_all_btn.config(text="CLEAR ALL")
+        if result.kind == "hygiene_start" and result.reminder is not None:
+            due = _local_stamp(result.reminder.due_at)
+            self.status.config(text=f"{result.message}  Due {due}.")
         else:
             self.status.config(text=result.message)
         if result.speak:
@@ -765,11 +803,29 @@ class BattleBuddyApp:
                 bg=_BG,
                 anchor="w",
             ).pack(fill="x", pady=12)
+            self._sync_hygiene_btn()
             return
         for item in reminders:
             self._add_row(item)
         self._bind_wheel(self.list_box)
         self._emit_minute_warns()
+        self._sync_hygiene_btn()
+
+    def _sync_hygiene_btn(self) -> None:
+        btn = getattr(self, "hygiene_btn", None)
+        if btn is None:
+            return
+        live = False
+        try:
+            live = hygiene_is_active(self.engine)
+        except Exception:
+            live = False
+        label = "STOP HYGIENE" if live else "HYGIENE"
+        try:
+            if str(btn.cget("text")) != label:
+                btn.config(text=label)
+        except Exception:
+            return
 
     def _bind_wheel(self, widget: object) -> None:
         for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):

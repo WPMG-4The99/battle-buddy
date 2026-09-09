@@ -18,6 +18,8 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
   python -m battlebuddy ui
   python -m battlebuddy remind me in 1 minute to check food stores
+  python -m battlebuddy hygiene start
+  python -m battlebuddy hygiene stop
   python -m battlebuddy listen
   python -m battlebuddy list
   python -m battlebuddy snooze food stores 5 minutes
@@ -44,7 +46,7 @@ def _print_list(result: ActionResult) -> None:
         print(f"  [{item.status.upper()}] {item.text}  due {due}  id {item.id}")
 
 
-def _watch(engine: ReminderEngine, reminder_id: str) -> int:
+def _watch(engine: ReminderEngine, reminder_id: str | None) -> int:
     print("Waiting to fire. Stay here.")
     warned: set[str] = set()
     try:
@@ -59,9 +61,9 @@ def _watch(engine: ReminderEngine, reminder_id: str) -> int:
             hit = False
             for item in fired:
                 announce(item)
-                if item.id == reminder_id:
+                if reminder_id is not None and item.id == reminder_id:
                     hit = True
-            if hit:
+            if reminder_id is not None and hit:
                 return 0
             time.sleep(0.25)
     except KeyboardInterrupt:
@@ -133,13 +135,23 @@ def run(argv: list[str] | None = None) -> int:
             speak(result.speak)
         return 0
 
-    if result.kind in {"snooze", "clear", "clear_all"}:
+    if result.kind in {"snooze", "clear", "clear_all", "hygiene_stop"}:
         print(result.message)
         if result.ok and result.kind == "snooze" and result.reminder is not None:
             print(f"Due {_local_stamp(result.reminder.due_at)}. id {result.reminder.id}")
         if result.speak:
             speak(result.speak)
         return 0 if result.ok else 1
+
+    if result.kind == "hygiene_start" and result.reminder is not None:
+        reminder = result.reminder
+        confirm(reminder.text, "15 minutes", _local_stamp(reminder.due_at), reminder.id)
+        print(result.message, flush=True)
+        if not wait:
+            print("Saved. Not watching. Loop holds on disk until stop.", flush=True)
+            return 0
+        print("Hygiene loop live. Stay here. Ctrl+C keeps it on disk.", flush=True)
+        return _watch(engine, None)
 
     if result.kind != "remind" or result.reminder is None or result.parsed is None:
         print(result.message)

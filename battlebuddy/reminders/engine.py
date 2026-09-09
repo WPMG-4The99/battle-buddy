@@ -12,6 +12,8 @@ from battlebuddy.memory.store import MemoryStore
 STATUS_PENDING = "pending"
 STATUS_FIRED = "fired"
 STATUS_CANCELLED = "cancelled"
+KIND_ONESHOT = "oneshot"
+KIND_HYGIENE = "hygiene"
 
 
 def _utc_now() -> datetime:
@@ -33,9 +35,10 @@ class Reminder:
     created_at: str
     status: str = STATUS_PENDING
     fired_at: str | None = None
+    kind: str = KIND_ONESHOT
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "id": self.id,
             "text": self.text,
             "due_at": self.due_at,
@@ -43,6 +46,9 @@ class Reminder:
             "status": self.status,
             "fired_at": self.fired_at,
         }
+        if self.kind and self.kind != KIND_ONESHOT:
+            payload["kind"] = self.kind
+        return payload
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Reminder | None:
@@ -57,6 +63,7 @@ class Reminder:
             return None
         status = str(raw.get("status") or STATUS_PENDING)
         fired_at = raw.get("fired_at")
+        kind = str(raw.get("kind") or KIND_ONESHOT).strip() or KIND_ONESHOT
         return cls(
             id=reminder_id,
             text=text,
@@ -64,6 +71,7 @@ class Reminder:
             created_at=created_at,
             status=status,
             fired_at=str(fired_at) if fired_at else None,
+            kind=kind,
         )
 
     def due_datetime(self) -> datetime:
@@ -94,20 +102,28 @@ class ReminderEngine:
     def _persist(self, reminders: list[Reminder]) -> None:
         self.store.save({"reminders": [item.to_dict() for item in reminders]})
 
-    def schedule(self, text: str, delay_seconds: int) -> Reminder:
+    def schedule(
+        self,
+        text: str,
+        delay_seconds: int,
+        *,
+        now: datetime | None = None,
+        kind: str = KIND_ONESHOT,
+    ) -> Reminder:
         clean = text.strip()
         if not clean:
             raise ValueError("Reminder text is empty.")
         if delay_seconds < 1:
             raise ValueError("Delay must be at least 1 second.")
-        now = _utc_now()
-        due = now + timedelta(seconds=delay_seconds)
+        moment = now if now is not None else _utc_now()
+        due = moment + timedelta(seconds=delay_seconds)
         reminder = Reminder(
             id=uuid.uuid4().hex[:8],
             text=clean,
             due_at=due.isoformat(),
-            created_at=now.isoformat(),
+            created_at=moment.isoformat(),
             status=STATUS_PENDING,
+            kind=kind if kind else KIND_ONESHOT,
         )
         reminders = self.load()
         reminders.append(reminder)
@@ -124,6 +140,9 @@ class ReminderEngine:
             return None
         target.status = STATUS_CANCELLED
         self._persist(reminders)
+        from battlebuddy.reminders.hygiene import note_hygiene_gone
+
+        note_hygiene_gone(self, target)
         return target
 
     def snooze(self, query: str, delay_seconds: int) -> Reminder | None:
@@ -158,6 +177,9 @@ class ReminderEngine:
             return None
         remaining = [item for item in reminders if item.id != target.id]
         self._persist(remaining)
+        from battlebuddy.reminders.hygiene import note_hygiene_gone
+
+        note_hygiene_gone(self, target)
         return target
 
     def clear_all(self) -> int:
@@ -165,6 +187,9 @@ class ReminderEngine:
         reminders = self.load()
         count = len(reminders)
         self._persist([])
+        from battlebuddy.reminders.hygiene import clear_loop_state
+
+        clear_loop_state(self)
         return count
 
     def fire_due(self, now: datetime | None = None) -> list[Reminder]:
@@ -178,6 +203,9 @@ class ReminderEngine:
                 fired.append(reminder)
         if fired:
             self._persist(reminders)
+        from battlebuddy.reminders.hygiene import chain_after_fire
+
+        chain_after_fire(self, fired, moment)
         return fired
 
     def _match(
