@@ -146,11 +146,11 @@ def run(argv: list[str] | None = None) -> int:
     if result.kind == "hygiene_start" and result.reminder is not None:
         reminder = result.reminder
         confirm(reminder.text, "15 minutes", _local_stamp(reminder.due_at), reminder.id)
-        print(result.message)
+        print(result.message, flush=True)
         if not wait:
-            print("Saved. Not watching. Loop holds on disk until stop.")
+            print("Saved. Not watching. Loop holds on disk until stop.", flush=True)
             return 0
-        print("Hygiene loop live. Stay here. Ctrl+C keeps it on disk.")
+        print("Hygiene loop live. Stay here. Ctrl+C keeps it on disk.", flush=True)
         return _watch(engine, None)
 
     if result.kind != "remind" or result.reminder is None or result.parsed is None:
