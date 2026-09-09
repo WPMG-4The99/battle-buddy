@@ -8,16 +8,17 @@ External memory for veterans in long strategy and survival sessions. You speak o
 
 ## What it does
 
-Four beats. No cloud. Nothing invented.
+Four beats plus a hygiene loop. No cloud. Nothing invented.
 
 1. **Remind.** Voice or typed reminder that survives restart. State lives on disk under `%USERPROFILE%\.battlebuddy`. FIRE at due time. Local TTS if the box has it.
 2. **SCAN.** Live-captures the running game from local processes (Steam/Epic folder or Unreal shipping). No Steam API.
 3. **Wiki seed.** First sight of a new empty-folder game fetches the top 3 public wiki pages (DuckDuckGo HTML `{game} wiki`, public GET, no account).
 4. **ASK.** Answers from those local pages. Compile a real how-to or miss. Nothing invented.
+5. **Hygiene.** 15 minutes work / 5 minutes break. Break FIRE rotates stand/move, eyes, breath. Gold **HYGIENE** button starts and stops it. Survives restart.
 
 ## The surface
 
-High-contrast veteran UI: black, gold, cream, scarlet **SUBMIT** / **FIRE**. ADHD-friendly large targets. One primary action. Low noise.
+High-contrast veteran UI: black, gold, cream, scarlet **SUBMIT** / **FIRE**. Gold **HYGIENE** starts and stops the 15/5 loop. ADHD-friendly large targets. One primary action. Low noise.
 
 ## How to run
 
@@ -68,6 +69,8 @@ python -m battlebuddy list
 python -m battlebuddy snooze food stores 5 minutes
 python -m battlebuddy clear reminder about mines
 python -m battlebuddy clear all
+python -m battlebuddy hygiene start
+python -m battlebuddy hygiene stop
 ```
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.

@@ -140,6 +140,27 @@ _CLEAR_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*clear\s+(?P<query>.+?)\s*$", re.IGNORECASE),
 )
 
+_HYGIENE_START: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"^\s*start\s+(?:the\s+)?(?:pomodoro|hygiene)(?:\s+loop)?\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^\s*(?:pomodoro|hygiene)\s+start\s*$", re.IGNORECASE),
+    re.compile(r"^\s*15\s+5\s+hygiene\s*$", re.IGNORECASE),
+    re.compile(r"^\s*hygiene\s+15\s+5\s*$", re.IGNORECASE),
+    re.compile(
+        r"^\s*start\s+15\s+5(?:\s+(?:hygiene|pomodoro))?\s*$",
+        re.IGNORECASE,
+    ),
+)
+_HYGIENE_STOP: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"^\s*stop\s+(?:the\s+)?(?:pomodoro|hygiene)(?:\s+loop)?\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^\s*(?:pomodoro|hygiene)\s+stop\s*$", re.IGNORECASE),
+)
+
 # Wispr / spoken leftovers. Leading only. Longer phrases first.
 _LEADING_FILLER = re.compile(
     r"^(?:i\s+need\s+to|set\s+a\s+reminder|real\s+quick|can\s+you|please)\s+",
@@ -278,6 +299,7 @@ def parse_reminder(line: str) -> ParsedReminder | None:
         or is_clear_all(raw)
         or parse_snooze(raw) is not None
         or parse_clear(raw) is not None
+        or parse_hygiene(raw) is not None
     ):
         return None
     for pattern in _PATTERNS:
@@ -324,6 +346,23 @@ def parse_snooze(line: str) -> ParsedSnooze | None:
         amount=amount,
         unit=unit_key,
     )
+
+
+def parse_hygiene(line: str) -> str | None:
+    """Return 'start' or 'stop' for the 15/5 hygiene loop. Else None."""
+    raw = _normalize_reminder_line(line)
+    if not raw:
+        return None
+    raw = _strip_leading_fillers(raw)
+    if not raw:
+        return None
+    for pattern in _HYGIENE_STOP:
+        if pattern.match(raw):
+            return "stop"
+    for pattern in _HYGIENE_START:
+        if pattern.match(raw):
+            return "start"
+    return None
 
 
 def parse_clear(line: str) -> str | None:

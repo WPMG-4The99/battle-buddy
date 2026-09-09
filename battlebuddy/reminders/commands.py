@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from battlebuddy.reminders.engine import Reminder, ReminderEngine
+from battlebuddy.reminders.hygiene import start_loop, stop_loop
 from battlebuddy.reminders.notify import confirm_line
 from battlebuddy.reminders.parse import (
     ParsedReminder,
     is_clear_all,
     is_list_command,
     parse_clear,
+    parse_hygiene,
     parse_reminder,
     parse_snooze,
 )
@@ -59,6 +61,22 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         noun = "reminder" if count == 1 else "reminders"
         msg = f"Cleared all. {count} {noun} wiped."
         return ActionResult(kind="clear_all", ok=True, message=msg, speak=msg)
+
+    hygiene = parse_hygiene(raw)
+    if hygiene == "start":
+        reminder = start_loop(engine)
+        msg = "Hygiene locked. 15 minutes work, then 5 minutes break."
+        return ActionResult(
+            kind="hygiene_start",
+            ok=True,
+            message=msg,
+            speak=msg,
+            reminder=reminder,
+        )
+    if hygiene == "stop":
+        stop_loop(engine)
+        msg = "Hygiene stopped. Pending hygiene cleared."
+        return ActionResult(kind="hygiene_stop", ok=True, message=msg, speak=msg)
 
     query = parse_clear(raw)
     if query is not None:
@@ -109,6 +127,8 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         message=(
             "Could not parse that. Try:\n"
             "  remind me in 1 minute to check food stores\n"
+            "  start hygiene\n"
+            "  stop hygiene\n"
             "  list my reminders\n"
             "  snooze food stores 5 minutes\n"
             "  clear reminder about mines\n"
