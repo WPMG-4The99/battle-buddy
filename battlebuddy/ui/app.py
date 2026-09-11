@@ -9,7 +9,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 
-from battlebuddy.databank.reason import present_ask, start_bundled_server, stop_bundled_server
+from battlebuddy.databank.reason import start_bundled_server, stop_bundled_server
 from battlebuddy.databank.search import ask_pages
 from battlebuddy.databank.seed import (
     needs_wiki_seed,
@@ -21,6 +21,7 @@ from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.reminders.commands import run_line
+from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
@@ -134,7 +135,7 @@ def hunt_or_keep_local(
     try:
         if result is None:
             return result, shown_after_hunt_failure(None)
-        return result, present_ask(result, question, store, game)
+        return result, answer_ask(result, question, store, game)
     except Exception:
         return result, shown_after_hunt_failure(result)
 
@@ -625,7 +626,7 @@ class BattleBuddyApp:
         result = ask_pages(self.databank, self._game_name, question)
         if not should_hunt(self.databank, self._game_name, question, result):
             ranked = rank_ask_result(result, question)
-            self._show_ask(present_ask(ranked, question, self.databank, self._game_name))
+            self._show_ask(answer_ask(ranked, question, self.databank, self._game_name))
             if result.ok:
                 self._clear_ask_box()
             return
@@ -713,7 +714,30 @@ class BattleBuddyApp:
         if is_clear_all(line):
             self._clear_all()
             return
-        result = run_line(self.engine, line)
+        decided = reason_utterance(
+            line, store=self.databank, game=self._game_name
+        )
+        if decided.kind == "command":
+            if is_clear_all(decided.line):
+                self._clear_all()
+                return
+            result = run_line(self.engine, decided.line)
+        elif decided.kind == "ask" and decided.result is not None:
+            result = decided.result
+        else:
+            result = decided.result or run_line(self.engine, line)
+        if result.kind == "ask":
+            self._wipe_armed = False
+            self.clear_all_btn.config(text="CLEAR ALL")
+            self._show_ask(result.message)
+            self.status.config(text="Ask. Saved pages only.")
+            if result.ok:
+                self.entry.delete(0, "end")
+                self.entry.focus_set()
+            if result.speak:
+                speak_async(result.speak)
+            self._refresh_list()
+            return
         if not result.ok:
             if result.kind == "unknown":
                 self.status.config(text=f"Could not parse that. Try: {_EXAMPLE}")

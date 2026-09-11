@@ -45,6 +45,7 @@ class WindowsPackagingTest(unittest.TestCase):
         self.assertIn("speech_recognition", text)
         self.assertIn("collect_submodules", text)
         self.assertIn("battlebuddy.databank.reason", text)
+        self.assertIn("battlebuddy.xai", text)
         self.assertIn("datas=[]", text)
         self.assertNotIn(".gguf", text)
 

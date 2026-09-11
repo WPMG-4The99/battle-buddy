@@ -31,7 +31,7 @@ Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sy
 - Python 3.10+
 - This repo on disk (`battlebuddy/` next to `skills/battle-buddy/`)
 - Hermes API key empty. Local 2–3B optional. Not required for this loop.
-- No accounts. No env vars. No cloud keys.
+- No accounts. No required env vars. No required cloud keys. Optional `XAI_API_KEY` is not needed for this loop.
 - TTS is optional (Windows SAPI / macOS `say` / Linux `espeak-ng`). Visual FIRE still counts.
 - STT is optional (Windows Speech Recognition, or Sphinx if already installed). Typed fallback always works.
 
@@ -105,7 +105,7 @@ Confirm in one or two lines. Then wait. Do not narrate the wait.
 - `--no-wait` saves without watching. Do not use that when the user asked to fire.
 - `hygiene start` without `--no-wait` stays in the window so the 15/5 chain can FIRE. Ctrl+C keeps the loop on disk until `hygiene stop`.
 - `clear all` wipes the store. Do it when they said clear all. Confirm the wipe in one line.
-- Empty API key is correct. Do not prompt for a provider account.
+- Empty API key is correct. Do not prompt for a provider account. Optional `XAI_API_KEY` is env-only and not required.
 
 ## Verification
 
