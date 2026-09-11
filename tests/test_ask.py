@@ -669,7 +669,7 @@ class HuntFailureTest(unittest.TestCase):
         self.assertIn("blacksmith", pane.lower())
         self.assertIn("spear", pane.lower())
         self.assertNotIn("No match on the wiki", pane)
-        with patch("battlebuddy.ui.app.present_ask", side_effect=ValueError("regex")):
+        with patch("battlebuddy.ui.app.answer_ask", side_effect=ValueError("regex")):
             kept, pane2 = ui_app.hunt_or_keep_local(
                 store,
                 None,
@@ -702,7 +702,8 @@ class AskUiSourceTest(unittest.TestCase):
         self.assertIn("self.ask_out", source)
         self.assertIn("self._show_ask", source)
         self.assertIn("ask_visible_message", source)
-        self.assertIn("present_ask", source)
+        self.assertIn("answer_ask", source)
+        self.assertIn("reason_utterance", source)
         self.assertIn("start_bundled_server", source)
         self.assertIn("stop_bundled_server", source)
         self.assertIn("_warm_bundled_llm", source)

@@ -121,6 +121,11 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
             parsed=parsed,
         )
 
+    return unknown_result()
+
+
+def unknown_result() -> ActionResult:
+    """Typed line did not match remind / list / snooze / clear / hygiene."""
     return ActionResult(
         kind="unknown",
         ok=False,

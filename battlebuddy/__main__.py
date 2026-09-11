@@ -6,13 +6,15 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from battlebuddy.reminders.commands import ActionResult, run_line
+from battlebuddy.databank.store import DatabankStore
+from battlebuddy.reminders.commands import ActionResult
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.reminders.notify import announce, confirm
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks
 from battlebuddy.voice.tts import speak
+from battlebuddy.xai.loop import handle_line
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
@@ -127,7 +129,14 @@ def run(argv: list[str] | None = None) -> int:
         return 0
 
     engine = ReminderEngine()
-    result = run_line(engine, line)
+    store = DatabankStore()
+    result = handle_line(engine, line, store=store, game=store.sole_saved_game())
+
+    if result.kind == "ask":
+        print(result.message)
+        if result.speak:
+            speak(result.speak)
+        return 0 if result.ok else 1
 
     if result.kind == "list":
         _print_list(result)

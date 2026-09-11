@@ -34,6 +34,8 @@ _BATTLEBUDDY_MODULES = [
     "battlebuddy.databank.slug",
     "battlebuddy.databank.store",
     "battlebuddy.databank.wiki",
+    "battlebuddy.xai",
+    "battlebuddy.xai.loop",
     "battlebuddy.game_detect",
     "battlebuddy.game_detect.names",
     "battlebuddy.game_detect.scan",
