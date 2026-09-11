@@ -75,7 +75,15 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Not committed.
+
+```text
+python -m battlebuddy note granary is low
+python -m battlebuddy games
+python -m battlebuddy notes
+```
+
+Notes do not FIRE. ASK can read them and the saved wiki pages. Nothing invented. No key.
 
 ### Windows build
 
@@ -101,7 +109,7 @@ Jessica is not this app.
 
 ```text
 skills/battle-buddy/SKILL.md   Hermes skill
-battlebuddy/memory/            local JSON
+battlebuddy/memory/            local JSON reminders + SQLite catalog
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
 battlebuddy/game_detect/       local process SCAN. No Steam API.

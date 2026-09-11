@@ -27,6 +27,7 @@ from battlebuddy.databank.clean import (
     term_in,
 )
 from battlebuddy.databank.store import DatabankStore
+from battlebuddy.memory.catalog import KnowledgeCatalog
 
 _WORD = re.compile(r"[a-z0-9]+")
 _STOP = {
@@ -342,6 +343,18 @@ def page_text_for_title(
             capped = cleaned if cap is None else cleaned[:cap]
             matches.append((cleaned, f"{first}.\n{capped}"))
     if not matches:
+        catalog = KnowledgeCatalog(store.home)
+        for note in catalog.list_notes(game):
+            raw = note.page_body()
+            first = (raw.splitlines()[0].strip() if raw else "") or "untitled"
+            if first != wanted:
+                continue
+            parts = raw.split("\n", 2)
+            text = parts[2] if len(parts) > 2 else raw
+            cleaned = strip_markup(text)
+            capped = cleaned if cap is None else cleaned[:cap]
+            matches.append((cleaned, f"{first}.\n{capped}"))
+    if not matches:
         return ""
     snip = strip_markup(snippet or "").strip()
     if snip:
@@ -379,12 +392,46 @@ def _after_title(text: str) -> str:
 
 
 def ask_pages(store: DatabankStore, game: str | None, question: str) -> AskResult:
-    """Search the game folder, then any other on-disk folder that matches."""
+    """Search the game folder, local notes, then any other on-disk folder."""
     result = search_folder(store.folder(game), question)
-    if not result.ok or result.hits:
+    if not result.ok:
         return result
+    notes = _note_hits(store, game, question)
+    if result.hits or notes:
+        hits = list(result.hits) + notes
+        hits.sort(key=lambda item: item.score, reverse=True)
+        kept = tuple(hits[:_MAX_HITS])
+        return AskResult(
+            ok=True,
+            empty=False,
+            message="Match on disk.",
+            hits=kept,
+            question=question,
+        )
     other = _ask_other_folders(store, game, question)
-    return other if other is not None else result
+    if other is not None:
+        return other
+    if result.empty and KnowledgeCatalog(store.home).has_notes(game):
+        return AskResult(ok=True, empty=False, message=_NO_MATCH, hits=(), question=question)
+    return result
+
+
+def _note_hits(store: DatabankStore, game: str | None, question: str) -> list[Hit]:
+    """Keyword retrieve over held notes. Never invents. Never fetches."""
+    text = (question or "").strip()
+    if not text:
+        return []
+    terms = query_terms(text)
+    needed = content_terms(terms)
+    if not needed:
+        return []
+    catalog = KnowledgeCatalog(store.home)
+    hits: list[Hit] = []
+    for note in catalog.list_notes(game):
+        hit = _best_hit(note.page_body(), terms, needed, text)
+        if hit is not None:
+            hits.append(hit)
+    return hits
 
 
 def _ask_other_folders(

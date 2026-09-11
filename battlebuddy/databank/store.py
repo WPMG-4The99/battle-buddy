@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from battlebuddy.databank.slug import game_slug
+from battlebuddy.memory.catalog import SOURCE_WIKI, KnowledgeCatalog
 from battlebuddy.memory.store import default_home
 
 
@@ -167,6 +168,8 @@ class DatabankStore:
             saved_at=stamp,
         )
         self._upsert(game, source)
+        if (game or "").strip():
+            KnowledgeCatalog(self.home).remember_game(game, source=SOURCE_WIKI, now=now)
         return source
 
     def _upsert(self, game: str | None, source: Source) -> None:

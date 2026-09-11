@@ -20,6 +20,7 @@ from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
+from battlebuddy.memory.catalog import KnowledgeCatalog, seen_on_disk_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -195,7 +196,8 @@ class BattleBuddyApp:
         self.root.title("Battle Buddy")
         self.root.configure(bg=_BG)
         self.databank = DatabankStore()
-        self._game_name: str | None = self.databank.sole_saved_game()
+        self.catalog = KnowledgeCatalog()
+        self._game_name: str | None = self.catalog.last_game() or self.databank.sole_saved_game()
         self._fetching = False
         self._asking = False
         self._seed_started: set[str] = set()
@@ -302,6 +304,17 @@ class BattleBuddyApp:
             command=self._scan_now,
         )
         self.scan_btn.pack(side="right", ipadx=16, ipady=10)
+        self.seen_line = tk.Label(
+            parent,
+            text=seen_on_disk_line(self.catalog.list_games(), self.catalog.list_notes()),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+            wraplength=480,
+            justify="left",
+        )
+        self.seen_line.pack(fill="x", pady=(4, 8))
 
         self._field_caption(parent, "Reminder", "Lock a time reminder here")
 
@@ -603,7 +616,19 @@ class BattleBuddyApp:
             self.databank_status.config(text=message)
         self._refresh_sources()
 
+    def _refresh_seen(self) -> None:
+        label = getattr(self, "seen_line", None)
+        if label is None:
+            return
+        try:
+            label.config(
+                text=seen_on_disk_line(self.catalog.list_games(), self.catalog.list_notes())
+            )
+        except Exception:
+            return
+
     def _refresh_sources(self) -> None:
+        self._refresh_seen()
         try:
             self.databank_header.config(text=databank_label(self._game_name))
         except Exception:
@@ -726,6 +751,18 @@ class BattleBuddyApp:
             result = decided.result
         else:
             result = decided.result or run_line(self.engine, line)
+        if result.kind in {"note", "notes", "games"}:
+            self._wipe_armed = False
+            self.clear_all_btn.config(text="CLEAR ALL")
+            self.status.config(text=result.message.split("\n", 1)[0])
+            if result.ok:
+                self.entry.delete(0, "end")
+                self.entry.focus_set()
+            if result.speak:
+                speak_async(result.speak)
+            self._refresh_seen()
+            self._refresh_list()
+            return
         if result.kind == "ask":
             self._wipe_armed = False
             self.clear_all_btn.config(text="CLEAR ALL")
@@ -1068,6 +1105,8 @@ class BattleBuddyApp:
             return
         if not is_named_game(name):
             return
+        self.catalog.remember_game(name, source="scan")
+        self._refresh_seen()
         old = self._game_name
         if not is_named_game(old):
             self._game_name = name

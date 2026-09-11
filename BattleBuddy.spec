@@ -45,6 +45,7 @@ _BATTLEBUDDY_MODULES = [
     "battlebuddy.voice.tick",
     "battlebuddy.memory",
     "battlebuddy.memory.store",
+    "battlebuddy.memory.catalog",
     "battlebuddy.win_entry",
 ]
 
