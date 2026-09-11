@@ -300,6 +300,7 @@ def parse_reminder(line: str) -> ParsedReminder | None:
         or parse_snooze(raw) is not None
         or parse_clear(raw) is not None
         or parse_hygiene(raw) is not None
+        or _is_catalog_line(raw)
     ):
         return None
     for pattern in _PATTERNS:
@@ -363,6 +364,12 @@ def parse_hygiene(line: str) -> str | None:
         if pattern.match(raw):
             return "start"
     return None
+
+
+def _is_catalog_line(line: str) -> bool:
+    from battlebuddy.memory.catalog import is_catalog_command
+
+    return is_catalog_command(line)
 
 
 def parse_clear(line: str) -> str | None:

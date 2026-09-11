@@ -84,8 +84,17 @@ Never send audio to a cloud. Never ask for an API key.
 | Clear all | `python -m battlebuddy clear all` |
 | Start hygiene (15 work / 5 break) | `python -m battlebuddy hygiene start` |
 | Stop hygiene | `python -m battlebuddy hygiene stop` |
+| Hold a note that does not FIRE | `python -m battlebuddy note granary is low` |
+| List seen games | `python -m battlebuddy games` |
+| List notes | `python -m battlebuddy notes` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Do not commit them.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games and notes: `catalog.sqlite`. Do not commit them.
+
+```text
+terminal(command="python -m battlebuddy note granary is low")
+terminal(command="python -m battlebuddy games")
+terminal(command="python -m battlebuddy notes")
+```
 
 ## Procedure
 

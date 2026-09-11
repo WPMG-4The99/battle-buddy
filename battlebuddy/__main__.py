@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 
 from battlebuddy.databank.store import DatabankStore
+from battlebuddy.memory.catalog import KnowledgeCatalog
 from battlebuddy.reminders.commands import ActionResult
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.reminders.notify import announce, confirm
@@ -27,8 +28,11 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy snooze food stores 5 minutes
   python -m battlebuddy clear reminder about mines
   python -m battlebuddy clear all
+  python -m battlebuddy note granary is low
+  python -m battlebuddy games
+  python -m battlebuddy notes
 
-State lives in ~/.battlebuddy/memory.json (or BATTLEBUDDY_HOME).
+State lives in ~/.battlebuddy (or BATTLEBUDDY_HOME). Reminders: memory.json. Games and notes: catalog.sqlite.
 Stay in this window so it can fire. Ctrl+C keeps it on disk.
 Oorah.
 """
@@ -130,7 +134,15 @@ def run(argv: list[str] | None = None) -> int:
 
     engine = ReminderEngine()
     store = DatabankStore()
-    result = handle_line(engine, line, store=store, game=store.sole_saved_game())
+    catalog = KnowledgeCatalog()
+    game = catalog.last_game() or store.sole_saved_game()
+    result = handle_line(engine, line, store=store, game=game)
+
+    if result.kind in {"note", "notes", "games"}:
+        print(result.message)
+        if result.speak:
+            speak(result.speak)
+        return 0 if result.ok else 1
 
     if result.kind == "ask":
         print(result.message)

@@ -14,6 +14,7 @@ from battlebuddy.databank.search import page_texts_for_hits
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.reminders.commands import ActionResult, run_line, unknown_result
 from battlebuddy.reminders.engine import ReminderEngine
+from battlebuddy.memory.catalog import is_catalog_command
 from battlebuddy.reminders.parse import (
     is_clear_all,
     is_list_command,
@@ -223,6 +224,7 @@ def _local_command(raw: str) -> bool:
         or parse_clear(raw)
         or parse_snooze(raw)
         or parse_reminder(raw)
+        or is_catalog_command(raw)
     )
 
 
