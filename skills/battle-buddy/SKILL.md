@@ -26,10 +26,11 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User records or recalls standing War Room state for the home roster only (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk)
 - User asks what now / next / coach for that roster game (template Coach; Grok only if `XAI_API_KEY` is set)
 - User sets help: `tier handhold` / `tier gentle` / `tier socratic` (session.json, next NEXT uses it)
-- User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). No Steam Web API.
+- User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). Optional `STEAM_WEB_API_KEY` can add news / owned / achievements for AppID 1368140. Unset skips. No Steam password field.
 - User seeds Corsair Cove wiki children from the Hooded Horse hub (`seed corsair`). Public GET. No paste.
 - User asks miss check: newest local screenshot. Empty key stays dark. No process inject.
 - User hears NEXT / MISS CHECK locally. FIRE stays local TTS. Unsolicited miss is visual only.
+- User sets `brain local` / `brain grok` / `brain dark`. local is the bundled sidecar stub. No 7B download.
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 

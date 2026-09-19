@@ -16,6 +16,7 @@ from battlebuddy.databank.store import DatabankStore
 from battlebuddy.memory.coach import coach
 from battlebuddy.vision.miss import is_miss_command, miss_check
 from battlebuddy.harvest.locate import (
+    apply_steam_web,
     format_harvest,
     is_harvest_command,
     load_harvest,
@@ -24,10 +25,14 @@ from battlebuddy.harvest.locate import (
 )
 from battlebuddy.memory.war_room import ROSTER_REFUSE, parse_war_room_line, resolve_roster
 from battlebuddy.session.tier import (
+    is_brain_command,
     is_tier_command,
     load_tier,
+    parse_brain_line,
     parse_tier_line,
+    save_brain,
     save_tier,
+    set_brain_message,
     set_tier_message,
 )
 from battlebuddy.reminders.engine import Reminder, ReminderEngine
@@ -143,8 +148,21 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         line_out = set_tier_message(saved)
         return ActionResult(kind="tier", ok=True, message=line_out, speak=line_out)
 
+    if is_brain_command(raw):
+        found_brain = parse_brain_line(raw)
+        if found_brain is None:
+            return ActionResult(
+                kind="brain",
+                ok=False,
+                message="Unknown brain. Use local, grok, or dark.",
+                speak="",
+            )
+        saved_brain = save_brain(found_brain)
+        line_out = set_brain_message(saved_brain)
+        return ActionResult(kind="brain", ok=True, message=line_out, speak=line_out)
+
     if is_harvest_command(raw):
-        row = locate_corsair_cove()
+        row = apply_steam_web(locate_corsair_cove())
         save_harvest(row)
         line_out = format_harvest(row)
         return ActionResult(kind="harvest", ok=True, message=line_out, speak=line_out)
@@ -293,6 +311,7 @@ def unknown_result() -> ActionResult:
             "  correct Bellwright place: west ridge\n"
             "  next Bellwright\n"
             "  tier gentle\n"
+            "  brain local\n"
             "  harvest\n"
             "  seed corsair\n"
             "  miss check"

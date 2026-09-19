@@ -37,6 +37,7 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy correct Bellwright place: west ridge
   python -m battlebuddy next Bellwright
   python -m battlebuddy tier gentle
+  python -m battlebuddy brain local
   python -m battlebuddy harvest
   python -m battlebuddy seed corsair
   python -m battlebuddy miss check
@@ -147,7 +148,7 @@ def run(argv: list[str] | None = None) -> int:
     game = catalog.last_game() or store.sole_saved_game()
     result = handle_line(engine, line, store=store, game=game)
 
-    if result.kind in {"note", "notes", "games", "tier", "harvest", "seed", "miss"}:
+    if result.kind in {"note", "notes", "games", "tier", "brain", "harvest", "seed", "miss"}:
         print(result.message)
         if result.speak:
             speak(spoken_line(result.speak) if result.kind == "miss" else result.speak)

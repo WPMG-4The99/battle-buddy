@@ -11,6 +11,7 @@ _EMPTY = "Hold a place first."
 _BRICK = "Next brick: HOLD after you do it."
 _SAY = "Say if this is wrong."
 _GROK_DARK = "Grok is dark. Scribe still holds."
+_LOCAL_DARK = "Local is dark. Scribe still holds."
 _MOVE_WORDS = 12
 _WHY_WORDS = 16
 _GROK_WORDS = 40
@@ -147,35 +148,22 @@ def _reject_grok(text: str) -> bool:
     return "wiki" in low
 
 
-def _with_dark(body: str) -> str:
+def _with_dark(body: str, line: str = _GROK_DARK) -> str:
     if body == _EMPTY:
         return body
-    if _GROK_DARK in body:
+    if line in body:
         return body
-    return f"{body}\n{_GROK_DARK}"
+    return f"{body}\n{line}"
 
 
-def coach(
+def _field_page(
     game: str | None,
     tier: str | None,
-    harvest: Any = None,
-    war_room: dict[str, str | None] | None = None,
-    *,
-    chat_fn: Callable[..., str | None] | None = None,
+    harvest: Any,
+    fields: dict[str, str | None],
 ) -> str:
-    """Template first. Optional grok-4.6. Empty key stays template."""
-    fields = _war_fields(war_room)
-    body = format_coach(tier=tier, **fields)
-    key = _api_key()
-    if not key:
-        return _with_dark(body)
-    if body == _EMPTY:
-        return body
-    talker = chat_fn
-    if talker is None:
-        from battlebuddy.xai.loop import chat as talker
     level = normalize_tier(tier) or DEFAULT_TIER
-    user = (
+    return (
         f"Game: {(game or '').strip() or 'unknown'}\n"
         f"Tier: {level}\n"
         f"{_harvest_line(harvest)}\n"
@@ -184,9 +172,62 @@ def coach(
         f"trap: {fields['trap'] or '—'}\n"
         f"decision: {fields['decision'] or '—'}"
     )
+
+
+def _coach_local(
+    body: str,
+    page: str,
+    local_fn: Callable[..., str | None] | None,
+) -> str:
+    talker = local_fn
+    if talker is None:
+        from battlebuddy.databank.reason import local_answer as talker
+    try:
+        raw = talker("One next move from the fields only.", page)
+    except TypeError:
+        try:
+            raw = talker(page)
+        except Exception:
+            return _with_dark(body, _LOCAL_DARK)
+    except Exception:
+        return _with_dark(body, _LOCAL_DARK)
+    text = _clip_words((raw or "").strip(), _GROK_WORDS)
+    if not text or _reject_grok(text):
+        return _with_dark(body, _LOCAL_DARK)
+    return text
+
+
+def coach(
+    game: str | None,
+    tier: str | None,
+    harvest: Any = None,
+    war_room: dict[str, str | None] | None = None,
+    *,
+    brain: str | None = None,
+    chat_fn: Callable[..., str | None] | None = None,
+    local_fn: Callable[..., str | None] | None = None,
+) -> str:
+    """Template first. brain=local uses sidecar stub. Grok only when chosen."""
+    from battlebuddy.session.tier import BRAIN_DARK, BRAIN_LOCAL, load_brain, normalize_brain
+
+    fields = _war_fields(war_room)
+    body = format_coach(tier=tier, **fields)
+    chosen = normalize_brain(brain) if brain else load_brain()
+    if chosen == BRAIN_LOCAL:
+        if body == _EMPTY:
+            return body
+        return _coach_local(body, _field_page(game, tier, harvest, fields), local_fn)
+    key = _api_key()
+    if not key or chosen == BRAIN_DARK:
+        return _with_dark(body)
+    if body == _EMPTY:
+        return body
+    talker = chat_fn
+    if talker is None:
+        from battlebuddy.xai.loop import chat as talker
     messages = [
         {"role": "system", "content": _COACH_SYSTEM},
-        {"role": "user", "content": user},
+        {"role": "user", "content": _field_page(game, tier, harvest, fields)},
     ]
     try:
         raw = talker(

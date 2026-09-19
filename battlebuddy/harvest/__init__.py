@@ -1,5 +1,6 @@
 from battlebuddy.harvest.locate import (
     HarvestLocate,
+    apply_steam_web,
     format_harvest,
     is_harvest_command,
     load_harvest,
@@ -9,6 +10,7 @@ from battlebuddy.harvest.locate import (
 
 __all__ = [
     "HarvestLocate",
+    "apply_steam_web",
     "format_harvest",
     "is_harvest_command",
     "load_harvest",

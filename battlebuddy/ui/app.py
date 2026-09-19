@@ -29,6 +29,7 @@ from battlebuddy.session.tier import (
     TIER_HANDHOLD,
     TIER_LABELS,
     TIER_SOCRATIC,
+    load_brain,
     load_tier,
     save_tier,
 )
@@ -677,6 +678,7 @@ class BattleBuddyApp:
         if name == "Corsair Cove" and snap is not None:
             state = "live" if snap.live else "dark"
             text = f"{text} · {state} · harvest"
+        text = f"{text} · brain {load_brain()}"
         self.war_line.config(text=text)
 
     def _set_war_room_out(self, text: str) -> None:

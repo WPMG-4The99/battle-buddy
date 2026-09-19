@@ -16,7 +16,7 @@ from battlebuddy.reminders.commands import ActionResult, run_line, unknown_resul
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.memory.catalog import is_catalog_command
 from battlebuddy.memory.war_room import parse_war_room_line
-from battlebuddy.session.tier import is_tier_command
+from battlebuddy.session.tier import is_brain_command, is_tier_command
 from battlebuddy.harvest.locate import is_harvest_command
 from battlebuddy.databank.seed import is_seed_corsair_command
 from battlebuddy.vision.miss import is_miss_command
@@ -233,6 +233,7 @@ def _local_command(raw: str) -> bool:
         or parse_reminder(raw)
         or is_catalog_command(raw)
         or is_tier_command(raw)
+        or is_brain_command(raw)
         or is_harvest_command(raw)
         or is_seed_corsair_command(raw)
         or is_miss_command(raw)

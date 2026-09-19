@@ -95,6 +95,8 @@ Yard 1 needs no key. Offline remind / FIRE / hygiene stay on disk with local TTS
 
 `XAI_API_KEY` in the environment maps messy remind / list / snooze / clear / hygiene lines onto the existing engine. Asks compile from saved wiki pages. Grok does not invent when those pages miss. Confirm and FIRE stay OS-local TTS. No UI field. No account. Never commit the key. Absent key is today's path.
 
+Optional `STEAM_WEB_API_KEY` can add Corsair Cove news, achievement count, and owned status to `harvest`. Unset skips. No UI field. Never a Steam password. Never commit the key. Local library parse still works without it.
+
 ### Hermes (optional)
 
 Same reminder loop as a [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/getting-started/installation) skill. Local 2–3B. Empty API key.

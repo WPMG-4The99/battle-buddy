@@ -37,11 +37,13 @@ class HarvestLocateTest(unittest.TestCase):
             "STEAM_PATH": os.environ.get("STEAM_PATH"),
             "LOCALAPPDATA": os.environ.get("LOCALAPPDATA"),
             "XAI_API_KEY": os.environ.get("XAI_API_KEY"),
+            "STEAM_WEB_API_KEY": os.environ.get("STEAM_WEB_API_KEY"),
         }
         os.environ["BATTLEBUDDY_HOME"] = str(self.home)
         os.environ["STEAM_PATH"] = str(self.steam)
         os.environ["LOCALAPPDATA"] = str(self.appdata)
         os.environ.pop("XAI_API_KEY", None)
+        os.environ.pop("STEAM_WEB_API_KEY", None)
         self.addCleanup(self._restore)
         self.engine = ReminderEngine(MemoryStore(self.home / "memory.json"))
 
@@ -137,6 +139,8 @@ class HarvestLocateTest(unittest.TestCase):
         blob = json.loads((self.home / "harvest.json").read_text(encoding="utf-8"))
         self.assertEqual(blob["appid"], "1368140")
         self.assertEqual(blob["install"], str(install))
+        self.assertEqual(blob.get("web"), "dark")
+        self.assertNotIn("STEAM_WEB_API_KEY", json.dumps(blob))
         memory = self.home / "memory.json"
         if memory.is_file():
             payload = json.loads(memory.read_text(encoding="utf-8"))
@@ -155,3 +159,5 @@ class HarvestUiSourceTest(unittest.TestCase):
         self.assertIn("MISS CHECK", source)
         self.assertNotIn("Jessica", source)
         self.assertIn("load_harvest", source)
+        self.assertNotIn("STEAM_WEB_API_KEY", source)
+        self.assertNotIn("password", source.lower())

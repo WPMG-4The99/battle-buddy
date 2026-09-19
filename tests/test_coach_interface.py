@@ -24,7 +24,7 @@ class CoachInterfaceTest(unittest.TestCase):
             os.environ["XAI_API_KEY"] = self._old_key
 
     def test_empty_no_dark_line(self) -> None:
-        shown = coach("Bellwright", "gentle", None, {})
+        shown = coach("Bellwright", "gentle", None, {}, brain="dark")
         self.assertEqual(shown, "Hold a place first.")
         self.assertNotIn(_GROK_DARK, shown)
 
@@ -34,6 +34,7 @@ class CoachInterfaceTest(unittest.TestCase):
             "gentle",
             None,
             {"place": "mill pond"},
+            brain="dark",
         )
         self.assertIn("One move:", shown)
         self.assertIn("mill pond", shown)
@@ -54,6 +55,7 @@ class CoachInterfaceTest(unittest.TestCase):
             "gentle",
             {"live": False, "install": None, "save_count": 0},
             {"place": "mill pond"},
+            brain="grok",
             chat_fn=fake_chat,
         )
         self.assertEqual(shown, "One move: check mill pond now.")
@@ -67,7 +69,14 @@ class CoachInterfaceTest(unittest.TestCase):
         def boom(*_args, **_kwargs):
             return None
 
-        shown = coach("Bellwright", "gentle", None, {"place": "mill pond"}, chat_fn=boom)
+        shown = coach(
+            "Bellwright",
+            "gentle",
+            None,
+            {"place": "mill pond"},
+            brain="grok",
+            chat_fn=boom,
+        )
         self.assertIn("One move:", shown)
         self.assertIn(_GROK_DARK, shown)
 
@@ -77,7 +86,14 @@ class CoachInterfaceTest(unittest.TestCase):
         def fake_chat(*_args, **_kwargs):
             return "See https://wiki.hoodedhorse.com/Corsair_Cove/Ships"
 
-        shown = coach("Corsair Cove", "gentle", None, {"place": "dock"}, chat_fn=fake_chat)
+        shown = coach(
+            "Corsair Cove",
+            "gentle",
+            None,
+            {"place": "dock"},
+            brain="grok",
+            chat_fn=fake_chat,
+        )
         self.assertIn("One move:", shown)
         self.assertIn(_GROK_DARK, shown)
         self.assertNotIn("https://", shown)
@@ -90,6 +106,7 @@ class CoachInterfaceTest(unittest.TestCase):
                 "gentle",
                 None,
                 {"place": "mill pond"},
+                brain="grok",
                 chat_fn=lambda *a, **k: "Stay at mill pond.",
             )
         posted.assert_not_called()

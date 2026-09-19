@@ -26,6 +26,10 @@ class HarvestLocate:
     newest_save: str | None
     newest_log: str | None
     save_count: int
+    news: str | None = None
+    owned: bool | None = None
+    achievements: int | None = None
+    web: str = "dark"
 
 
 def harvest_path(home: Path | None = None) -> Path:
@@ -107,13 +111,51 @@ def locate_corsair_cove(
         newest_save=str(newest_save) if newest_save is not None else None,
         newest_log=str(newest_log) if newest_log is not None else None,
         save_count=save_count,
+        news=None,
+        owned=None,
+        achievements=None,
+        web="dark",
+    )
+
+
+def apply_steam_web(row: HarvestLocate) -> HarvestLocate:
+    """Optional Web API enrich. Missing key leaves the local snapshot as-is."""
+    from battlebuddy.steam.web import fetch_cove_web, steamid_from_path
+
+    sid = steamid_from_path(row.newest_save) or steamid_from_path(row.save_dir)
+    snap = fetch_cove_web(appid=row.appid, steamid=sid)
+    return HarvestLocate(
+        game=row.game,
+        appid=row.appid,
+        live=row.live,
+        install=row.install,
+        save_dir=row.save_dir,
+        newest_save=row.newest_save,
+        newest_log=row.newest_log,
+        save_count=row.save_count,
+        news=snap.news,
+        owned=snap.owned,
+        achievements=snap.achievements,
+        web=snap.state,
     )
 
 
 def format_harvest(row: HarvestLocate) -> str:
     state = "live" if row.live else "dark"
     place = row.install if row.install else "missing"
-    return f"{row.game} · {state} · {place} · saves {row.save_count}"
+    line = f"{row.game} · {state} · {place} · saves {row.save_count}"
+    if row.web != "live":
+        return line
+    extra: list[str] = []
+    if row.news:
+        extra.append(row.news[:40])
+    if row.owned is True:
+        extra.append("owned")
+    if row.achievements is not None:
+        extra.append(f"ach {row.achievements}")
+    if extra:
+        return line + " · " + " · ".join(extra)
+    return line + " · steam web"
 
 
 def save_harvest(row: HarvestLocate, home: Path | None = None) -> Path:
@@ -146,6 +188,12 @@ def load_harvest(home: Path | None = None) -> HarvestLocate | None:
             newest_save=blob.get("newest_save") if blob.get("newest_save") else None,
             newest_log=blob.get("newest_log") if blob.get("newest_log") else None,
             save_count=int(blob.get("save_count") or 0),
+            news=str(blob["news"]) if blob.get("news") else None,
+            owned=blob.get("owned") if isinstance(blob.get("owned"), bool) else None,
+            achievements=int(blob["achievements"])
+            if blob.get("achievements") is not None
+            else None,
+            web=str(blob.get("web") or "dark"),
         )
     except (TypeError, ValueError):
         return None

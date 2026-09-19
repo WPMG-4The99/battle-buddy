@@ -114,3 +114,11 @@ Newest local screenshot only (Cove Saved/Screenshots, Pictures/Screenshots, Stea
 ## Phase 2 prove-out — voice (Step 6)
 
 NEXT and MISS CHECK speak through local TTS (clipped). FIRE unchanged. Unsolicited miss stays visual. SPEAK routes next/coach/miss to War Room, not reminders. No cloud TTS.
+
+## Phase 2 prove-out — Steam Web API (Step 7)
+
+Optional `STEAM_WEB_API_KEY`. Unset skips. Never blocks harvest. AppID `1368140` only: news, achievement schema, owned if a SteamMain id is on disk. No UI field. No Steam password.
+
+## Phase 2 prove-out — local brain stub (Step 8)
+
+`brain local` / `brain grok` / `brain dark` in `session.json`. local uses the existing loopback sidecar (SmolLM if already on disk). Template if it is down. Do not download a 7B. No UI rewrite.
