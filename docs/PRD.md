@@ -76,3 +76,13 @@ A stranger clones the repo, runs it, sets a 1-minute reminder with no login, see
 
 Always: Fire, PHYRE, flame, ash, wildfire, Phoenix, the forgotten 99%, Active Stoicism, Oorah.  
 Never in product: Prometheus, Satan/Satanic, worship / obedience / submission, Hooah, wellness copy.
+
+## Phase 2 slice 1 — War Room (Scribe)
+
+Standing state for the **home roster only** (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk). Lives in `catalog.sqlite` under `BATTLEBUDDY_HOME`. Reminders stay in `memory.json`. No accounts. Not Jessica. Not Coach. Not Intel. Walk-in titles are refused; this slice does not add titles to the roster.
+
+Commands: `remember for <Game>:`, `where was I`, `war room`, `correct`. Typed / CLI, offline.
+
+## Phase 2 slice 2 — War Room on the existing UI
+
+Same window. Left strip under the reminder list: roster chips, HOLD / WHERE, Hold this. Calls `run_line`. No Correct button. No walk-in game box. Reminder SUBMIT stays reminders.

@@ -21,6 +21,7 @@ from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.memory.catalog import KnowledgeCatalog, seen_on_disk_line
+from battlebuddy.memory.war_room import ROSTER_NAMES
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -53,6 +54,22 @@ _CLOCK_FONT = ("Arial", 40, "bold")
 _TITLE_FONT = ("Arial", 30, "bold")
 _BODY_FONT = ("Arial", 16)
 _HINT_FONT = ("Arial", 14)
+_WAR_KINDS: tuple[tuple[str, str], ...] = (
+    ("Place", "place"),
+    ("Trap", "trap"),
+    ("Decision", "decision"),
+    ("Patch", "patch"),
+)
+_SAY_WRONG = "Say if this is wrong."
+
+
+def war_room_oneliner(name: str, place: str | None, patch: str | None) -> str:
+    """One line of current standing state. Not the full log."""
+    if place is None and patch is None:
+        return f"{name} · War Room empty."
+    shown_place = place if place else "—"
+    shown_patch = patch if patch else "—"
+    return f"{name} · {shown_place} · patch {shown_patch}"
 
 
 def remaining_seconds(due_at: str, now: datetime | None = None) -> int:
@@ -423,6 +440,187 @@ class BattleBuddyApp:
         self.list_canvas.bind("<Button-4>", self._wheel)
         self.list_canvas.bind("<Button-5>", self._wheel)
         self.list_canvas.bind("<MouseWheel>", self._wheel)
+        self._build_war_room(parent)
+
+    def _build_war_room(self, parent: object) -> None:
+        """Home-roster strip under the reminder list. Chips only. No walk-in."""
+        tk = self.tk
+        last = KnowledgeCatalog().last_roster()
+        self._war_game = last[0] if last is not None else "Bellwright"
+        self._war_kind = "place"
+        self._roster_btns: dict[str, object] = {}
+        self._kind_btns: dict[str, object] = {}
+
+        strip = tk.Frame(parent, bg=_BG)
+        strip.pack(side="bottom", fill="x", pady=(4, 0))
+
+        roster = tk.Frame(strip, bg=_BG)
+        roster.pack(fill="x", pady=(0, 4))
+        # Home roster only: Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk.
+        for name in ROSTER_NAMES:
+            btn = tk.Button(
+                roster,
+                text=name,
+                font=("Arial", 12, "bold"),
+                relief="flat",
+                cursor="hand2",
+                command=lambda n=name: self._select_war_game(n),
+            )
+            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            self._roster_btns[name] = btn
+
+        self.war_line = tk.Label(
+            strip,
+            text="",
+            font=("Arial", 14, "bold"),
+            fg=_FG,
+            bg=_BG,
+            anchor="w",
+        )
+        self.war_line.pack(fill="x", pady=(2, 4))
+
+        kinds = tk.Frame(strip, bg=_BG)
+        kinds.pack(fill="x", pady=(0, 4))
+        for label, kind in _WAR_KINDS:
+            btn = tk.Button(
+                kinds,
+                text=label,
+                font=("Arial", 14, "bold"),
+                relief="flat",
+                cursor="hand2",
+                command=lambda k=kind: self._select_war_kind(k),
+            )
+            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            self._kind_btns[kind] = btn
+
+        self._field_caption(strip, "Hold this")
+        self.hold_entry = self._make_entry(strip, size=16)
+        self.hold_entry.pack(fill="x", ipady=4, pady=(0, 4))
+        self.hold_entry.bind("<Return>", lambda _event: self._war_room_hold())
+
+        actions = tk.Frame(strip, bg=_BG)
+        actions.pack(fill="x", pady=(0, 4))
+        self.hold_btn = tk.Button(
+            actions,
+            text="HOLD",
+            font=("Arial", 18, "bold"),
+            bg=_SCARLET,
+            fg=_FG,
+            activebackground="#E03A54",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=self._war_room_hold,
+        )
+        self.hold_btn.pack(
+            side="left",
+            expand=True,
+            fill="x",
+            ipady=8,
+            padx=(0, 8),
+        )
+        self.where_btn = tk.Button(
+            actions,
+            text="WHERE",
+            font=("Arial", 18, "bold"),
+            bg=_GOLD,
+            fg=_BG,
+            activebackground="#F0D78A",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=self._war_room_where,
+        )
+        self.where_btn.pack(side="left", expand=True, fill="x", ipady=8)
+
+        self.war_room_out = tk.Text(
+            strip,
+            height=3,
+            font=("Arial", 13),
+            bg=_INPUT_BG,
+            fg=_FG,
+            insertbackground=_GOLD,
+            relief="flat",
+            wrap="word",
+            highlightthickness=1,
+            highlightbackground=_EDGE,
+            state="disabled",
+        )
+        self.war_room_out.pack(fill="x", pady=(4, 6))
+        self._paint_war_chips()
+        self._refresh_war_line()
+
+    def _paint_war_chips(self) -> None:
+        for name, btn in self._roster_btns.items():
+            selected = name == self._war_game
+            btn.config(
+                bg=_GOLD if selected else _BTN_DARK,
+                fg=_BG if selected else _FG,
+                activebackground=_GOLD if selected else _BTN_DARK_HI,
+                activeforeground=_BG if selected else _FG,
+            )
+        for kind, btn in self._kind_btns.items():
+            selected = kind == self._war_kind
+            btn.config(
+                bg=_GOLD if selected else _BTN_DARK,
+                fg=_BG if selected else _FG,
+                activebackground=_GOLD if selected else _BTN_DARK_HI,
+                activeforeground=_BG if selected else _FG,
+            )
+
+    def _select_war_game(self, name: str) -> None:
+        self._war_game = name
+        self._paint_war_chips()
+        self._refresh_war_line()
+
+    def _select_war_kind(self, kind: str) -> None:
+        self._war_kind = kind
+        self._paint_war_chips()
+
+    def _refresh_war_line(self) -> None:
+        name = self._war_game
+        row = KnowledgeCatalog().war_room_row(game_slug(name))
+        if row is None:
+            text = f"{name} · War Room empty."
+        else:
+            text = war_room_oneliner(name, row.get("place"), row.get("patch"))
+        self.war_line.config(text=text)
+
+    def _set_war_room_out(self, text: str) -> None:
+        pane = getattr(self, "war_room_out", None)
+        if pane is None:
+            return
+        shown = (text or "").rstrip()
+        if shown and _SAY_WRONG not in shown:
+            shown = f"{shown}\n{_SAY_WRONG}"
+        try:
+            pane.config(state="normal")
+            pane.delete("1.0", "end")
+            if shown:
+                pane.insert("1.0", shown)
+            pane.config(state="disabled")
+        except Exception:
+            return
+
+    def _war_room_hold(self) -> None:
+        text = self.hold_entry.get().strip()
+        if not text:
+            self._set_war_room_out("Hold this is empty.")
+            return
+        line = f"remember {self._war_kind} for {self._war_game}: {text}"
+        result = run_line(self.engine, line)
+        self._set_war_room_out(result.message)
+        if result.ok:
+            try:
+                self.hold_entry.delete(0, "end")
+            except Exception:
+                pass
+        self._refresh_war_line()
+
+    def _war_room_where(self) -> None:
+        result = run_line(self.engine, f"where was I in {self._war_game}")
+        self._set_war_room_out(result.message)
+        self._refresh_war_line()
 
     def _field_caption(
         self, parent: object, title: str, hint: str = "", *, padx: int = 0
@@ -1245,6 +1443,7 @@ class BattleBuddyApp:
             getattr(self, "entry", None),
             getattr(self, "url_entry", None),
             getattr(self, "ask_entry", None),
+            getattr(self, "hold_entry", None),
         ):
             if widget is None:
                 continue
@@ -1253,6 +1452,7 @@ class BattleBuddyApp:
             except Exception:
                 continue
         self._set_ask_out("")
+        self._set_war_room_out("")
 
     def _warm_bundled_llm(self) -> None:
         """Background only. Missing GGUF is fine. Reminder clocks stay live."""

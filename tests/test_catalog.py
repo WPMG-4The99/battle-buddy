@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -184,6 +185,55 @@ class AskUsesNotesTest(unittest.TestCase):
         well = ask_pages(store, "Manor Lords", "where is the well")
         self.assertIn("well", well.output().lower())
         self.assertIn("church", well.output().lower())
+
+
+class WarRoomIsolationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self._old_home = os.environ.get("BATTLEBUDDY_HOME")
+        os.environ["BATTLEBUDDY_HOME"] = str(self.home)
+
+    def tearDown(self) -> None:
+        if self._old_home is None:
+            os.environ.pop("BATTLEBUDDY_HOME", None)
+        else:
+            os.environ["BATTLEBUDDY_HOME"] = self._old_home
+
+    def test_tables_and_path_under_home(self) -> None:
+        catalog = KnowledgeCatalog(self.home)
+        catalog.list_games()
+        self.assertEqual(catalog.path, self.home / CATALOG_NAME)
+        self.assertTrue(catalog.path.is_file())
+        conn = sqlite3.connect(catalog.path)
+        try:
+            names = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+        finally:
+            conn.close()
+        self.assertIn("games", names)
+        self.assertIn("notes", names)
+        self.assertIn("war_room", names)
+        self.assertIn("war_room_lines", names)
+
+    def test_note_does_not_create_war_room(self) -> None:
+        catalog = KnowledgeCatalog(self.home)
+        catalog.add_note("scratch about mill stones", game="Bellwright")
+        self.assertIsNone(catalog.war_room_row("bellwright"))
+        self.assertEqual(catalog.war_room_lines("bellwright"), [])
+        conn = sqlite3.connect(catalog.path)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+            rooms = conn.execute("SELECT COUNT(*) FROM war_room").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 1)
+        self.assertEqual(rooms, 0)
 
 
 if __name__ == "__main__":

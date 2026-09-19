@@ -31,8 +31,12 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy note granary is low
   python -m battlebuddy games
   python -m battlebuddy notes
+  python -m battlebuddy remember for Bellwright: mill pond
+  python -m battlebuddy where was I in Bellwright
+  python -m battlebuddy war room Bellwright
+  python -m battlebuddy correct Bellwright place: west ridge
 
-State lives in ~/.battlebuddy (or BATTLEBUDDY_HOME). Reminders: memory.json. Games and notes: catalog.sqlite.
+State lives in ~/.battlebuddy (or BATTLEBUDDY_HOME). Reminders: memory.json. Games, notes, and War Room: catalog.sqlite. Home roster only.
 Stay in this window so it can fire. Ctrl+C keeps it on disk.
 Oorah.
 """
@@ -155,6 +159,12 @@ def run(argv: list[str] | None = None) -> int:
         if result.speak:
             speak(result.speak)
         return 0
+
+    if result.kind == "war_room":
+        print(result.message)
+        if result.speak:
+            speak(result.speak)
+        return 0 if result.ok else 1
 
     if result.kind in {"snooze", "clear", "clear_all", "hygiene_stop"}:
         print(result.message)

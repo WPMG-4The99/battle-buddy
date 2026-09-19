@@ -26,6 +26,9 @@ Read `AGENTS.md` and `docs/PRD.md` before you write files.
 - Require SuperGrok or any provider account to complete the reminder loop
 - Put Jessica / MPOW doctrine in the UI
 - Expand scope past: speak/type reminder → confirm → fire → persist
+  (lifted for War Room slice 1 only: home-roster remember / recall / correct
+  in catalog.sqlite. Still no accounts. Still no Jessica. Do not use this
+  lift for Coach, Intel, or a UI rebuild.)
 
 ## Acceptance for the first loop
 

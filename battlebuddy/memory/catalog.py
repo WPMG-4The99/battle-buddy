@@ -8,8 +8,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from battlebuddy.memory.store import default_home
+from battlebuddy.memory.war_room import (
+    corrected_line,
+    empty_line,
+    format_recall,
+    held_line,
+)
 
 
 def _game_slug(game: str | None) -> str:
@@ -144,6 +151,29 @@ class KnowledgeCatalog:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS war_room (
+                slug TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                place TEXT,
+                patch TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS war_room_lines (
+                id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
         conn.commit()
         return conn
 
@@ -272,6 +302,187 @@ class KnowledgeCatalog:
 
     def has_notes(self, game: str | None = None) -> bool:
         return bool(self.list_notes(game))
+
+    def war_room_row(self, slug: str) -> dict[str, Any] | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT slug, name, place, patch, updated_at FROM war_room WHERE slug = ?",
+                (slug,),
+            ).fetchone()
+            return dict(row) if row is not None else None
+        finally:
+            conn.close()
+
+    def war_room_lines(self, slug: str) -> list[dict[str, Any]]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, slug, kind, text, created_at, active
+                FROM war_room_lines
+                WHERE slug = ?
+                ORDER BY created_at ASC
+                """,
+                (slug,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def last_roster(self) -> tuple[str, str] | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT name, slug FROM war_room
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            return str(row["name"]), str(row["slug"])
+        finally:
+            conn.close()
+
+    def remember(self, name: str, slug: str, kind: str, text: str) -> str:
+        body = text.strip()
+        now = _utc_now().isoformat()
+        line_id = uuid.uuid4().hex
+        conn = self._connect()
+        try:
+            existing = conn.execute(
+                "SELECT slug, place, patch FROM war_room WHERE slug = ?",
+                (slug,),
+            ).fetchone()
+            place = existing["place"] if existing is not None else None
+            patch = existing["patch"] if existing is not None else None
+            if kind == "place":
+                place = body
+            elif kind == "patch":
+                patch = body
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO war_room (slug, name, place, patch, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (slug, name, place, patch, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE war_room
+                    SET name = ?, place = ?, patch = ?, updated_at = ?
+                    WHERE slug = ?
+                    """,
+                    (name, place, patch, now, slug),
+                )
+            conn.execute(
+                """
+                INSERT INTO war_room_lines
+                    (id, slug, kind, text, created_at, active)
+                VALUES (?, ?, ?, ?, ?, 1)
+                """,
+                (line_id, slug, kind, body, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return held_line(name, kind)
+
+    def recall(self, name: str, slug: str) -> str:
+        row = self.war_room_row(slug)
+        if row is None:
+            return empty_line(name)
+        decisions: list[tuple[str, str]] = []
+        traps: list[tuple[str, str]] = []
+        for line in self.war_room_lines(slug):
+            if not line["active"]:
+                continue
+            kind = str(line["kind"])
+            stamp = str(line["created_at"])
+            text = str(line["text"])
+            if kind == "decision":
+                decisions.append((stamp, text))
+            elif kind == "trap":
+                traps.append((stamp, text))
+        return format_recall(
+            name,
+            row.get("place"),
+            row.get("patch"),
+            decisions,
+            traps,
+        )
+
+    def correct(
+        self,
+        name: str,
+        slug: str,
+        kind: str,
+        text: str | None,
+    ) -> str:
+        row = self.war_room_row(slug)
+        if row is None:
+            return f"No active {kind} for {name}."
+        now = _utc_now().isoformat()
+        conn = self._connect()
+        try:
+            latest = conn.execute(
+                """
+                SELECT id FROM war_room_lines
+                WHERE slug = ? AND kind = ? AND active = 1
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (slug, kind),
+            ).fetchone()
+            if latest is None:
+                return f"No active {kind} for {name}."
+            conn.execute(
+                "UPDATE war_room_lines SET active = 0 WHERE id = ?",
+                (latest["id"],),
+            )
+            body = (text or "").strip()
+            if body:
+                conn.execute(
+                    """
+                    INSERT INTO war_room_lines
+                        (id, slug, kind, text, created_at, active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    (uuid.uuid4().hex, slug, kind, body, now),
+                )
+            if kind in {"place", "patch"}:
+                remaining = conn.execute(
+                    """
+                    SELECT text FROM war_room_lines
+                    WHERE slug = ? AND kind = ? AND active = 1
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (slug, kind),
+                ).fetchone()
+                current = remaining["text"] if remaining is not None else None
+                column = "place" if kind == "place" else "patch"
+                conn.execute(
+                    f"""
+                    UPDATE war_room
+                    SET {column} = ?, updated_at = ?
+                    WHERE slug = ?
+                    """,
+                    (current, now, slug),
+                )
+            else:
+                conn.execute(
+                    "UPDATE war_room SET updated_at = ? WHERE slug = ?",
+                    (now, slug),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return corrected_line(name, kind)
 
 
 def _game_from_row(row: sqlite3.Row | None) -> SeenGame | None:

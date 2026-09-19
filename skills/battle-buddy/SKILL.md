@@ -23,8 +23,9 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User wants the high-contrast window
 - User asks to list, snooze, or clear reminders (including after a restart)
 - User starts or stops the 15/5 hygiene loop ("start hygiene", "start pomodoro", "15 5 hygiene")
+- User records or recalls standing War Room state for the home roster only (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk)
 
-Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, or wellness coaching.
+Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, Coach, or Intel.
 
 ## Prerequisites
 
@@ -45,7 +46,7 @@ Typed 1-minute reminder (always works):
 terminal(command="python -m battlebuddy remind me in 1 minute to check food stores", timeout=120)
 ```
 
-High-contrast UI (one primary action). Leave it running so it can FIRE, including if the window sits in back. List, snooze, and clear are large targets in that window.
+High-contrast UI (one primary action). Leave it running so it can FIRE, including if the window sits in back. List, snooze, and clear are large targets in that window. Left strip HOLD / WHERE is home-roster War Room only.
 
 ```text
 terminal(command="python -m battlebuddy ui", timeout=600)
@@ -60,6 +61,10 @@ terminal(command="python -m battlebuddy clear reminder about mines")
 terminal(command="python -m battlebuddy clear all")
 terminal(command="python -m battlebuddy --no-wait hygiene start")
 terminal(command="python -m battlebuddy hygiene stop")
+terminal(command="python -m battlebuddy remember for Bellwright: mill pond")
+terminal(command="python -m battlebuddy where was I in Bellwright")
+terminal(command="python -m battlebuddy war room Bellwright")
+terminal(command="python -m battlebuddy correct Bellwright place: west ridge")
 ```
 
 Local listen if STT exists, otherwise it asks for type:
@@ -87,8 +92,13 @@ Never send audio to a cloud. Never ask for an API key.
 | Hold a note that does not FIRE | `python -m battlebuddy note granary is low` |
 | List seen games | `python -m battlebuddy games` |
 | List notes | `python -m battlebuddy notes` |
+| Remember standing state | `python -m battlebuddy remember for Bellwright: mill pond` |
+| Remember a trap | `python -m battlebuddy remember trap for Bellwright: winter food collapse` |
+| Where was I | `python -m battlebuddy where was I in Bellwright` |
+| War Room | `python -m battlebuddy war room Bellwright` |
+| Correct | `python -m battlebuddy correct Bellwright place: west ridge` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games and notes: `catalog.sqlite`. Do not commit them.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Do not commit them.
 
 ```text
 terminal(command="python -m battlebuddy note granary is low")

@@ -10,6 +10,7 @@ from battlebuddy.memory.catalog import (
     is_notes_command,
     parse_note,
 )
+from battlebuddy.memory.war_room import ROSTER_REFUSE, parse_war_room_line, resolve_roster
 from battlebuddy.reminders.engine import Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import start_loop, stop_loop
 from battlebuddy.reminders.notify import confirm_line
@@ -35,10 +36,48 @@ class ActionResult:
     parsed: ParsedReminder | None = None
 
 
+def _war_room_result(ok: bool, message: str) -> ActionResult:
+    return ActionResult(kind="war_room", ok=ok, message=message, speak=message)
+
+
+def _run_war_room(command_line: str) -> ActionResult | None:
+    parsed = parse_war_room_line(command_line)
+    if parsed is None:
+        return None
+    catalog = KnowledgeCatalog()
+    if parsed.game:
+        resolved = resolve_roster(parsed.game)
+        if resolved is None:
+            return _war_room_result(False, ROSTER_REFUSE)
+        name, slug = resolved
+    else:
+        last = catalog.last_roster()
+        if last is None:
+            return _war_room_result(True, "War Room empty.")
+        name, slug = last
+
+    if parsed.action == "remember":
+        text = (parsed.text or "").strip()
+        kind = parsed.kind or "place"
+        if not text:
+            return _war_room_result(False, "Could not parse that.")
+        return _war_room_result(True, catalog.remember(name, slug, kind, text))
+    if parsed.action == "recall":
+        return _war_room_result(True, catalog.recall(name, slug))
+    if parsed.action == "correct":
+        kind = parsed.kind or "place"
+        return _war_room_result(True, catalog.correct(name, slug, kind, parsed.text))
+    return None
+
+
 def run_line(engine: ReminderEngine, line: str) -> ActionResult:
     raw = " ".join(line.strip().split())
     if not raw:
         return ActionResult(kind="unknown", ok=False, message="Empty.", speak="")
+
+    war_room = _run_war_room(raw)
+    if war_room is not None:
+        return war_room
 
     if is_games_command(raw):
         return _list_games()
@@ -152,9 +191,14 @@ def unknown_result() -> ActionResult:
             "  snooze food stores 5 minutes\n"
             "  clear reminder about mines\n"
             "  clear all\n"
+            "  clear all\n"
             "  note granary is low\n"
             "  games\n"
-            "  notes"
+            "  notes\n"
+            "  remember for Bellwright: mill pond\n"
+            "  where was I in Bellwright\n"
+            "  war room Bellwright\n"
+            "  correct Bellwright place: west ridge"
         ),
         speak="",
     )
