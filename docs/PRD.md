@@ -94,3 +94,7 @@ Deterministic next brick from the selected War Room row only (trap, else place, 
 ## Phase 2 prove-out — session help (Step 1)
 
 `BATTLEBUDDY_HOME/session.json` holds `{ "tier": "gentle" }`. Default Gentle. Mid-session `tier handhold` / `tier gentle` / `tier socratic` (and spoken aliases) changes the next NEXT line. Template Coach only. Empty key is correct. Harvest, Grok, vision, and Steam API wait.
+
+## Phase 2 prove-out — harvest locate (Step 2)
+
+Local Steam files plus `%LOCALAPPDATA%\CorsairCove\Saved` for AppID `1368140`. CLI: `harvest` / `locate corsair`. Snapshot: `harvest.json`. Paths only. No Web API. No inject. No save-editor. Wiki and Grok wait.

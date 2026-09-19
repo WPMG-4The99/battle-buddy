@@ -11,6 +11,8 @@ __pycache__/
 .env.*
 memory.json
 hygiene.json
+session.json
+harvest.json
 # Fetched wiki text lives under BATTLEBUDDY_HOME. Never commit it.
 databanks/
 **/.battlebuddy/

@@ -31,6 +31,7 @@ from battlebuddy.session.tier import (
     load_tier,
     save_tier,
 )
+from battlebuddy.harvest.locate import load_harvest
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
@@ -651,6 +652,10 @@ class BattleBuddyApp:
                 f"{war_room_oneliner(name, row.get('place'), row.get('patch'))}"
                 f" · {help_label}"
             )
+        snap = load_harvest()
+        if name == "Corsair Cove" and snap is not None:
+            state = "live" if snap.live else "dark"
+            text = f"{text} · {state} · harvest"
         self.war_line.config(text=text)
 
     def _set_war_room_out(self, text: str) -> None:

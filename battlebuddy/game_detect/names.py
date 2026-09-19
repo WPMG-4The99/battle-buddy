@@ -16,6 +16,8 @@ KNOWN_GAMES: dict[str, str] = {
     "civ6.exe": "Civilization VI",
     "stellaris.exe": "Stellaris",
     "7daystodie.exe": "7 Days to Die",
+    "corsaircove.exe": "Corsair Cove",
+    "corsaircove-win64-shipping.exe": "Corsair Cove",
 }
 
 _SHIPPING = re.compile(

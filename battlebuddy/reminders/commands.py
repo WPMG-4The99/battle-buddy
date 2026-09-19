@@ -11,6 +11,12 @@ from battlebuddy.memory.catalog import (
     parse_note,
 )
 from battlebuddy.memory.coach import format_coach
+from battlebuddy.harvest.locate import (
+    format_harvest,
+    is_harvest_command,
+    locate_corsair_cove,
+    save_harvest,
+)
 from battlebuddy.memory.war_room import ROSTER_REFUSE, parse_war_room_line, resolve_roster
 from battlebuddy.session.tier import (
     is_tier_command,
@@ -127,6 +133,12 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         saved = save_tier(found)
         line_out = set_tier_message(saved)
         return ActionResult(kind="tier", ok=True, message=line_out, speak=line_out)
+
+    if is_harvest_command(raw):
+        row = locate_corsair_cove()
+        save_harvest(row)
+        line_out = format_harvest(row)
+        return ActionResult(kind="harvest", ok=True, message=line_out, speak=line_out)
 
     war_room = _run_war_room(raw)
     if war_room is not None:
@@ -253,7 +265,8 @@ def unknown_result() -> ActionResult:
             "  war room Bellwright\n"
             "  correct Bellwright place: west ridge\n"
             "  next Bellwright\n"
-            "  tier gentle"
+            "  tier gentle\n"
+            "  harvest"
         ),
         speak="",
     )

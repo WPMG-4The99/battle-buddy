@@ -26,6 +26,7 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User records or recalls standing War Room state for the home roster only (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk)
 - User asks what now / next / coach for that roster game (one move from fields already on disk)
 - User sets help: `tier handhold` / `tier gentle` / `tier socratic` (session.json, next NEXT uses it)
+- User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). No Steam Web API.
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 
@@ -101,8 +102,9 @@ Never send audio to a cloud. Never ask for an API key.
 | Correct | `python -m battlebuddy correct Bellwright place: west ridge` |
 | Next brick (Coach) | `python -m battlebuddy next Bellwright` |
 | Help tier | `python -m battlebuddy tier gentle` |
+| Locate Corsair Cove | `python -m battlebuddy harvest` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Do not commit them.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Harvest locate: `harvest.json`. Do not commit them.
 
 ```text
 terminal(command="python -m battlebuddy note granary is low")
