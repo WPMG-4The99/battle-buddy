@@ -13,6 +13,7 @@ memory.json
 hygiene.json
 session.json
 harvest.json
+vision.json
 # Fetched wiki text lives under BATTLEBUDDY_HOME. Never commit it.
 databanks/
 **/.battlebuddy/

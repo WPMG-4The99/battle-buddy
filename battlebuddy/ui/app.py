@@ -32,6 +32,7 @@ from battlebuddy.session.tier import (
     save_tier,
 )
 from battlebuddy.harvest.locate import load_harvest
+from battlebuddy.vision.miss import miss_check
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
@@ -221,6 +222,7 @@ class BattleBuddyApp:
         self._clocks: dict[str, tuple[object, str]] = {}
         self._minute_warned: set[str] = set()
         self._game_busy = False
+        self._miss_busy = False
         self._detect_ticks = 0
 
         self.root = tk.Tk()
@@ -580,7 +582,26 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._war_room_next,
         )
-        self.next_btn.pack(side="left", expand=True, fill="x", ipady=8)
+        self.next_btn.pack(
+            side="left",
+            expand=True,
+            fill="x",
+            ipady=8,
+            padx=(0, 8),
+        )
+        self.miss_btn = tk.Button(
+            actions,
+            text="MISS CHECK",
+            font=("Arial", 18, "bold"),
+            bg=_GOLD,
+            fg=_BG,
+            activebackground="#F0D78A",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=self._war_room_miss,
+        )
+        self.miss_btn.pack(side="left", expand=True, fill="x", ipady=8)
 
         self.war_room_out = tk.Text(
             strip,
@@ -665,6 +686,8 @@ class BattleBuddyApp:
         shown = (text or "").rstrip()
         skip_say = (
             shown == "Hold a place first."
+            or shown.startswith("Newest shot:")
+            or shown in {"No screenshot.", "Wait. Vision is cooling."}
             or ("?" in shown and "One move:" not in shown and "Action:" not in shown)
         )
         if shown and _SAY_WRONG not in shown and not skip_say:
@@ -700,6 +723,11 @@ class BattleBuddyApp:
 
     def _war_room_next(self) -> None:
         result = run_line(self.engine, f"next {self._war_game}")
+        self._set_war_room_out(result.message)
+        self._refresh_war_line()
+
+    def _war_room_miss(self) -> None:
+        result = run_line(self.engine, "miss check")
         self._set_war_room_out(result.message)
         self._refresh_war_line()
 
@@ -1332,6 +1360,7 @@ class BattleBuddyApp:
         else:
             self._tick_clocks()
         self._maybe_scan_game()
+        self._maybe_unsolicited_miss()
         try:
             self.root.after(_POLL_MS, self._tick)
         except Exception:
@@ -1344,6 +1373,39 @@ class BattleBuddyApp:
         except Exception:
             pass
         self._start_game_scan(prefer_switch=True)
+
+    def _maybe_unsolicited_miss(self) -> None:
+        """Cove live only. Five-minute cap. Never blocks FIRE."""
+        if self._miss_busy:
+            return
+        if getattr(self, "_war_game", None) != "Corsair Cove":
+            return
+        snap = load_harvest()
+        if snap is None or not snap.live:
+            return
+        self._miss_busy = True
+        threading.Thread(target=self._unsolicited_miss_worker, daemon=True).start()
+
+    def _unsolicited_miss_worker(self) -> None:
+        try:
+            found = miss_check(
+                unsolicited=True,
+                key=(os.environ.get("XAI_API_KEY") or "").strip() or None,
+            )
+        except Exception:
+            found = None
+        try:
+            self.root.after(0, lambda: self._apply_unsolicited_miss(found))
+        except Exception:
+            self._miss_busy = False
+
+    def _apply_unsolicited_miss(self, found: object) -> None:
+        self._miss_busy = False
+        message = getattr(found, "message", "") if found is not None else ""
+        skipped = bool(getattr(found, "skipped", True)) if found is not None else True
+        if skipped or not message:
+            return
+        self._set_war_room_out(str(message))
 
     def _maybe_scan_game(self) -> None:
         """Refresh the quiet game line. Never blocks fire or countdown."""

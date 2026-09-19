@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from battlebuddy.memory.catalog import (
@@ -13,6 +14,7 @@ from battlebuddy.memory.catalog import (
 from battlebuddy.databank.seed import is_seed_corsair_command, seed_new_game
 from battlebuddy.databank.store import DatabankStore
 from battlebuddy.memory.coach import coach
+from battlebuddy.vision.miss import is_miss_command, miss_check
 from battlebuddy.harvest.locate import (
     format_harvest,
     is_harvest_command,
@@ -146,6 +148,15 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         save_harvest(row)
         line_out = format_harvest(row)
         return ActionResult(kind="harvest", ok=True, message=line_out, speak=line_out)
+
+    if is_miss_command(raw):
+        found = miss_check(key=(os.environ.get("XAI_API_KEY") or "").strip() or None)
+        return ActionResult(
+            kind="miss",
+            ok=found.ok,
+            message=found.message or "No screenshot.",
+            speak=found.message,
+        )
 
     if is_seed_corsair_command(raw):
         seeded = seed_new_game(DatabankStore(), "Corsair Cove")
@@ -283,7 +294,8 @@ def unknown_result() -> ActionResult:
             "  next Bellwright\n"
             "  tier gentle\n"
             "  harvest\n"
-            "  seed corsair"
+            "  seed corsair\n"
+            "  miss check"
         ),
         speak="",
     )

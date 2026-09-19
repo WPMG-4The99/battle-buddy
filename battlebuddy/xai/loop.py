@@ -19,6 +19,7 @@ from battlebuddy.memory.war_room import parse_war_room_line
 from battlebuddy.session.tier import is_tier_command
 from battlebuddy.harvest.locate import is_harvest_command
 from battlebuddy.databank.seed import is_seed_corsair_command
+from battlebuddy.vision.miss import is_miss_command
 from battlebuddy.reminders.parse import (
     is_clear_all,
     is_list_command,
@@ -234,6 +235,7 @@ def _local_command(raw: str) -> bool:
         or is_tier_command(raw)
         or is_harvest_command(raw)
         or is_seed_corsair_command(raw)
+        or is_miss_command(raw)
         or parse_war_room_line(raw) is not None
     )
 

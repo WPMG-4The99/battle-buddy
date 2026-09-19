@@ -123,7 +123,7 @@ class SessionTierUiTest(unittest.TestCase):
         self.assertIn('text="HOLD"', source)
         self.assertIn('text="NEXT"', source)
         self.assertNotIn("Jessica", source)
-        self.assertNotIn("MISS CHECK", source)
+        self.assertIn("MISS CHECK", source)
 
     def test_chip_then_next(self) -> None:
         try:

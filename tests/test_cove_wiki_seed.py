@@ -131,5 +131,5 @@ class CoveSeedCliTest(unittest.TestCase):
 class CoveUiSourceTest(unittest.TestCase):
     def test_no_miss_check_no_jessica(self) -> None:
         source = Path(ui_app.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("MISS CHECK", source)
+        self.assertIn("MISS CHECK", source)
         self.assertNotIn("Jessica", source)

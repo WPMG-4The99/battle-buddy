@@ -28,6 +28,7 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User sets help: `tier handhold` / `tier gentle` / `tier socratic` (session.json, next NEXT uses it)
 - User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). No Steam Web API.
 - User seeds Corsair Cove wiki children from the Hooded Horse hub (`seed corsair`). Public GET. No paste.
+- User asks miss check: newest local screenshot. Empty key stays dark. No process inject.
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 
@@ -105,8 +106,9 @@ Never send audio to a cloud. Never ask for an API key.
 | Help tier | `python -m battlebuddy tier gentle` |
 | Locate Corsair Cove | `python -m battlebuddy harvest` |
 | Seed Corsair Cove wiki | `python -m battlebuddy seed corsair` |
+| Miss check | `python -m battlebuddy miss check` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Harvest locate: `harvest.json`. Do not commit them.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Harvest locate: `harvest.json`. Vision caps: `vision.json`. Do not commit them.
 
 ```text
 terminal(command="python -m battlebuddy note granary is low")

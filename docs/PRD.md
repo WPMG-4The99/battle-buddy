@@ -106,3 +106,7 @@ Corsair Cove hub `https://wiki.hoodedhorse.com/Corsair_Cove/`. Same-origin child
 ## Phase 2 prove-out — Coach vs Grok (Step 4)
 
 `coach(game, tier, harvest, war_room)` wraps the template. Empty `XAI_API_KEY`: template plus `Grok is dark. Scribe still holds.` (empty row stays `Hold a place first.`). Key set: grok-4.6 via existing loop, caps, fields only. Template still works if the call fails. Vision waits.
+
+## Phase 2 prove-out — miss check (Step 5)
+
+Newest local screenshot only (Cove Saved/Screenshots, Pictures/Screenshots, Steam 1368140 shots). No inject. CLI/UI `MISS CHECK`. Unsolicited at most every 5 minutes while Cove is live. Vision POST at most every 2 minutes. Empty key: path plus `Grok is dark. Scribe still holds.` Voice waits.
