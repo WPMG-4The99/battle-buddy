@@ -120,6 +120,11 @@ KNOWN_WIKIS: dict[str, WikiHome] = {
         api="https://valheim.fandom.com/api.php",
         article_base="https://valheim.fandom.com/wiki/",
     ),
+    "corsair cove": WikiHome(
+        origin="https://wiki.hoodedhorse.com",
+        api="https://wiki.hoodedhorse.com/Corsair_Cove/api.php",
+        article_base="https://wiki.hoodedhorse.com/Corsair_Cove/",
+    ),
 }
 
 

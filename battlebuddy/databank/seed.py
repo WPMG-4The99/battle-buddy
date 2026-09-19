@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import URLError
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from urllib.request import Request, build_opener
 
 from battlebuddy.databank.fetch import looks_like_login_url, normalize_url
@@ -20,6 +20,16 @@ _SEARCH_UA = (
 )
 _TIMEOUT = 15
 _MAX_LINKS = 3
+_COVE_HUB = "https://wiki.hoodedhorse.com/Corsair_Cove/"
+_COVE_PREFIX = "/Corsair_Cove/"
+_COVE_SKIP = (
+    "special:",
+    "file:",
+    "api.php",
+    "index.php",
+    "userlogin",
+    "/login",
+)
 _SKIP_HOSTS = (
     "google.com",
     "www.google.com",
@@ -135,6 +145,8 @@ def seed_new_game(store: DatabankStore, game: str | None) -> SeedResult:
         return SeedResult(False, 0, "No game.")
     if not needs_wiki_seed(store, name):
         return SeedResult(False, 0, "Already on disk.")
+    if is_corsair_game(name):
+        return seed_corsair_cove(store, name)
     try:
         urls = search_wiki_urls(name)
     except Exception:
@@ -147,6 +159,87 @@ def seed_new_game(store: DatabankStore, game: str | None) -> SeedResult:
         return SeedResult(True, 0, seed_done_line(name, 0))
     saved = 0
     for url in urls:
+        try:
+            result = store.add_url(name, url)
+        except Exception:
+            continue
+        if getattr(result, "ok", False):
+            saved += 1
+    if saved:
+        return SeedResult(True, saved, seed_done_line(name, saved))
+    return SeedResult(True, 0, seed_fail_line())
+
+
+def is_corsair_game(name: str | None) -> bool:
+    key = " ".join((name or "").strip().lower().split())
+    return key in {"corsair cove", "corsair"}
+
+
+def is_seed_corsair_command(line: str) -> bool:
+    raw = " ".join((line or "").split()).lower()
+    return raw in {"seed corsair", "seed corsair cove"}
+
+
+def pick_cove_child_urls(html: str, hub: str = _COVE_HUB, limit: int = _MAX_LINKS) -> list[str]:
+    """Same-origin /Corsair_Cove/ children. Skip hub, Steam, login, special."""
+    parser = _HrefParser()
+    try:
+        parser.feed(html or "")
+        parser.close()
+    except Exception:
+        return []
+    hub_clean = normalize_url(hub) or hub.rstrip("/")
+    picked: list[str] = []
+    seen: set[str] = set()
+    for raw in parser.hrefs:
+        resolved = urljoin(hub, raw)
+        clean = normalize_url(resolved)
+        if not clean or clean in seen:
+            continue
+        if not looks_like_wiki_url(clean):
+            continue
+        parsed = urlparse(clean)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
+        if host != "wiki.hoodedhorse.com":
+            continue
+        if not path.startswith(_COVE_PREFIX):
+            continue
+        rest = path[len(_COVE_PREFIX) :].strip("/")
+        if not rest:
+            continue
+        blob = f"{path}?{parsed.query}".lower()
+        if any(token in blob for token in _COVE_SKIP):
+            continue
+        if looks_like_login_url(clean):
+            continue
+        if clean.rstrip("/") == hub_clean.rstrip("/"):
+            continue
+        seen.add(clean)
+        picked.append(clean)
+        if len(picked) >= limit:
+            break
+    return picked
+
+
+def seed_corsair_cove(store: DatabankStore, game: str = "Corsair Cove") -> SeedResult:
+    """Hub GET then same-origin children. No DuckDuckGo. No paste."""
+    name = (game or "Corsair Cove").strip() or "Corsair Cove"
+    try:
+        html = _get_html(_COVE_HUB)
+    except Exception:
+        return SeedResult(True, 0, seed_fail_line())
+    if html is None:
+        return SeedResult(True, 0, seed_fail_line())
+    children = pick_cove_child_urls(html)
+    saved = 0
+    try:
+        hub = store.add_url(name, _COVE_HUB)
+    except Exception:
+        hub = None
+    if hub is not None and getattr(hub, "ok", False):
+        saved += 1
+    for url in children:
         try:
             result = store.add_url(name, url)
         except Exception:

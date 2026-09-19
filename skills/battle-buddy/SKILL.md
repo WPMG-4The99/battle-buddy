@@ -24,9 +24,10 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User asks to list, snooze, or clear reminders (including after a restart)
 - User starts or stops the 15/5 hygiene loop ("start hygiene", "start pomodoro", "15 5 hygiene")
 - User records or recalls standing War Room state for the home roster only (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk)
-- User asks what now / next / coach for that roster game (one move from fields already on disk)
+- User asks what now / next / coach for that roster game (template Coach; Grok only if `XAI_API_KEY` is set)
 - User sets help: `tier handhold` / `tier gentle` / `tier socratic` (session.json, next NEXT uses it)
 - User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). No Steam Web API.
+- User seeds Corsair Cove wiki children from the Hooded Horse hub (`seed corsair`). Public GET. No paste.
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 
@@ -103,6 +104,7 @@ Never send audio to a cloud. Never ask for an API key.
 | Next brick (Coach) | `python -m battlebuddy next Bellwright` |
 | Help tier | `python -m battlebuddy tier gentle` |
 | Locate Corsair Cove | `python -m battlebuddy harvest` |
+| Seed Corsair Cove wiki | `python -m battlebuddy seed corsair` |
 
 State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Harvest locate: `harvest.json`. Do not commit them.
 

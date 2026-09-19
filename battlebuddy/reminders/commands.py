@@ -10,10 +10,13 @@ from battlebuddy.memory.catalog import (
     is_notes_command,
     parse_note,
 )
-from battlebuddy.memory.coach import format_coach
+from battlebuddy.databank.seed import is_seed_corsair_command, seed_new_game
+from battlebuddy.databank.store import DatabankStore
+from battlebuddy.memory.coach import coach
 from battlebuddy.harvest.locate import (
     format_harvest,
     is_harvest_command,
+    load_harvest,
     locate_corsair_cove,
     save_harvest,
 )
@@ -82,7 +85,7 @@ def _run_war_room(command_line: str) -> ActionResult | None:
         kind = parsed.kind or "place"
         return _war_room_result(True, catalog.correct(name, slug, kind, parsed.text))
     if parsed.action == "coach":
-        return _war_room_result(True, _coach_from_catalog(catalog, slug))
+        return _war_room_result(True, _coach_from_catalog(catalog, name, slug))
     return None
 
 
@@ -99,7 +102,7 @@ def _latest_active(lines: list, kind: str) -> str | None:
     return found
 
 
-def _coach_from_catalog(catalog: KnowledgeCatalog, slug: str) -> str:
+def _coach_from_catalog(catalog: KnowledgeCatalog, name: str, slug: str) -> str:
     row = catalog.war_room_row(slug)
     lines = catalog.war_room_lines(slug)
     place = None
@@ -107,12 +110,16 @@ def _coach_from_catalog(catalog: KnowledgeCatalog, slug: str) -> str:
     if row is not None:
         place = str(row.get("place") or "").strip() or None
         patch = str(row.get("patch") or "").strip() or None
-    return format_coach(
-        place=place,
-        patch=patch,
-        trap=_latest_active(lines, "trap"),
-        decision=_latest_active(lines, "decision"),
-        tier=load_tier(),
+    return coach(
+        name,
+        load_tier(),
+        load_harvest(),
+        {
+            "place": place,
+            "patch": patch,
+            "trap": _latest_active(lines, "trap"),
+            "decision": _latest_active(lines, "decision"),
+        },
     )
 
 
@@ -139,6 +146,15 @@ def run_line(engine: ReminderEngine, line: str) -> ActionResult:
         save_harvest(row)
         line_out = format_harvest(row)
         return ActionResult(kind="harvest", ok=True, message=line_out, speak=line_out)
+
+    if is_seed_corsair_command(raw):
+        seeded = seed_new_game(DatabankStore(), "Corsair Cove")
+        return ActionResult(
+            kind="seed",
+            ok=bool(seeded.saved or not seeded.started),
+            message=seeded.message,
+            speak=seeded.message,
+        )
 
     war_room = _run_war_room(raw)
     if war_room is not None:
@@ -266,7 +282,8 @@ def unknown_result() -> ActionResult:
             "  correct Bellwright place: west ridge\n"
             "  next Bellwright\n"
             "  tier gentle\n"
-            "  harvest"
+            "  harvest\n"
+            "  seed corsair"
         ),
         speak="",
     )

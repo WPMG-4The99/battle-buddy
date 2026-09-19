@@ -1,14 +1,25 @@
-"""One move from standing War Room fields. No wiki. No model. No account."""
+"""One move from standing War Room fields. Template always. Grok optional."""
 
 from __future__ import annotations
+
+import os
+from typing import Any, Callable
 
 from battlebuddy.session.tier import DEFAULT_TIER, TIER_HANDHOLD, TIER_SOCRATIC, normalize_tier
 
 _EMPTY = "Hold a place first."
 _BRICK = "Next brick: HOLD after you do it."
 _SAY = "Say if this is wrong."
+_GROK_DARK = "Grok is dark. Scribe still holds."
 _MOVE_WORDS = 12
 _WHY_WORDS = 16
+_GROK_WORDS = 40
+_COACH_TIMEOUT = 8
+_COACH_MAX_TOKENS = 80
+_COACH_SYSTEM = (
+    "One next move from the fields only. Do not invent. Do not cite a wiki. "
+    "No Jessica. Match the help tier. Keep it short."
+)
 
 
 def _clip_words(text: str, limit: int) -> str:
@@ -96,3 +107,102 @@ def format_coach(
             _SAY,
         )
     )
+
+
+def _api_key() -> str | None:
+    raw = (os.environ.get("XAI_API_KEY") or "").strip()
+    return raw or None
+
+
+def _harvest_line(harvest: Any) -> str:
+    if harvest is None:
+        return "harvest: none"
+    live = getattr(harvest, "live", None)
+    if isinstance(harvest, dict):
+        live = harvest.get("live")
+        count = harvest.get("save_count")
+        install = harvest.get("install")
+    else:
+        count = getattr(harvest, "save_count", None)
+        install = getattr(harvest, "install", None)
+    state = "live" if live else "dark"
+    where = str(install).strip() if install else "missing"
+    return f"harvest: {state} · {where} · saves {count or 0}"
+
+
+def _war_fields(war_room: dict[str, str | None] | None) -> dict[str, str | None]:
+    row = war_room or {}
+    return {
+        "place": (row.get("place") or "").strip() or None,
+        "patch": (row.get("patch") or "").strip() or None,
+        "trap": (row.get("trap") or "").strip() or None,
+        "decision": (row.get("decision") or "").strip() or None,
+    }
+
+
+def _reject_grok(text: str) -> bool:
+    low = text.lower()
+    if "jessica" in low or "http://" in low or "https://" in low:
+        return True
+    return "wiki" in low
+
+
+def _with_dark(body: str) -> str:
+    if body == _EMPTY:
+        return body
+    if _GROK_DARK in body:
+        return body
+    return f"{body}\n{_GROK_DARK}"
+
+
+def coach(
+    game: str | None,
+    tier: str | None,
+    harvest: Any = None,
+    war_room: dict[str, str | None] | None = None,
+    *,
+    chat_fn: Callable[..., str | None] | None = None,
+) -> str:
+    """Template first. Optional grok-4.6. Empty key stays template."""
+    fields = _war_fields(war_room)
+    body = format_coach(tier=tier, **fields)
+    key = _api_key()
+    if not key:
+        return _with_dark(body)
+    if body == _EMPTY:
+        return body
+    talker = chat_fn
+    if talker is None:
+        from battlebuddy.xai.loop import chat as talker
+    level = normalize_tier(tier) or DEFAULT_TIER
+    user = (
+        f"Game: {(game or '').strip() or 'unknown'}\n"
+        f"Tier: {level}\n"
+        f"{_harvest_line(harvest)}\n"
+        f"place: {fields['place'] or '—'}\n"
+        f"patch: {fields['patch'] or '—'}\n"
+        f"trap: {fields['trap'] or '—'}\n"
+        f"decision: {fields['decision'] or '—'}"
+    )
+    messages = [
+        {"role": "system", "content": _COACH_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    try:
+        raw = talker(
+            messages,
+            key=key,
+            timeout=_COACH_TIMEOUT,
+            max_tokens=_COACH_MAX_TOKENS,
+        )
+    except TypeError:
+        try:
+            raw = talker(messages, key=key)
+        except Exception:
+            return _with_dark(body)
+    except Exception:
+        return _with_dark(body)
+    text = _clip_words((raw or "").strip(), _GROK_WORDS)
+    if not text or _reject_grok(text):
+        return _with_dark(body)
+    return text

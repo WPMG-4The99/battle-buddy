@@ -18,6 +18,7 @@ from battlebuddy.memory.catalog import is_catalog_command
 from battlebuddy.memory.war_room import parse_war_room_line
 from battlebuddy.session.tier import is_tier_command
 from battlebuddy.harvest.locate import is_harvest_command
+from battlebuddy.databank.seed import is_seed_corsair_command
 from battlebuddy.reminders.parse import (
     is_clear_all,
     is_list_command,
@@ -202,6 +203,7 @@ def chat(
     *,
     key: str,
     timeout: float = CHAT_TIMEOUT,
+    max_tokens: int = 200,
 ) -> str | None:
     """POST api.x.ai chat completions. None on failure. Never logs the key."""
     token = (key or "").strip()
@@ -209,11 +211,12 @@ def chat(
         return None
     if not _is_xai_url(CHAT_URL):
         return None
+    cap = max(1, min(int(max_tokens), 200))
     payload: dict[str, object] = {
         "model": MODEL,
         "messages": messages,
         "temperature": 0,
-        "max_tokens": 200,
+        "max_tokens": cap,
     }
     body = _post_json(CHAT_URL, payload, token, timeout)
     return _message_text(body)
@@ -230,6 +233,7 @@ def _local_command(raw: str) -> bool:
         or is_catalog_command(raw)
         or is_tier_command(raw)
         or is_harvest_command(raw)
+        or is_seed_corsair_command(raw)
         or parse_war_room_line(raw) is not None
     )
 

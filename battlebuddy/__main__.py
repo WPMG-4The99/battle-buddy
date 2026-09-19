@@ -38,6 +38,7 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy next Bellwright
   python -m battlebuddy tier gentle
   python -m battlebuddy harvest
+  python -m battlebuddy seed corsair
 
 State lives in ~/.battlebuddy (or BATTLEBUDDY_HOME). Reminders: memory.json. Games, notes, and War Room: catalog.sqlite. Home roster only.
 Stay in this window so it can fire. Ctrl+C keeps it on disk.
@@ -145,7 +146,7 @@ def run(argv: list[str] | None = None) -> int:
     game = catalog.last_game() or store.sole_saved_game()
     result = handle_line(engine, line, store=store, game=game)
 
-    if result.kind in {"note", "notes", "games", "tier", "harvest"}:
+    if result.kind in {"note", "notes", "games", "tier", "harvest", "seed"}:
         print(result.message)
         if result.speak:
             speak(result.speak)

@@ -98,3 +98,11 @@ Deterministic next brick from the selected War Room row only (trap, else place, 
 ## Phase 2 prove-out — harvest locate (Step 2)
 
 Local Steam files plus `%LOCALAPPDATA%\CorsairCove\Saved` for AppID `1368140`. CLI: `harvest` / `locate corsair`. Snapshot: `harvest.json`. Paths only. No Web API. No inject. No save-editor. Wiki and Grok wait.
+
+## Phase 2 prove-out — wiki seed (Step 3)
+
+Corsair Cove hub `https://wiki.hoodedhorse.com/Corsair_Cove/`. Same-origin child pages only (cap 3). No DuckDuckGo happy path. No paste happy path. SCAN / `seed corsair` public GET. Grok waits.
+
+## Phase 2 prove-out — Coach vs Grok (Step 4)
+
+`coach(game, tier, harvest, war_room)` wraps the template. Empty `XAI_API_KEY`: template plus `Grok is dark. Scribe still holds.` (empty row stays `Hold a place first.`). Key set: grok-4.6 via existing loop, caps, fields only. Template still works if the call fails. Vision waits.
