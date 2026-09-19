@@ -50,21 +50,24 @@ class CoachUiLiveTest(unittest.TestCase):
 
     def test_next_after_hold_and_empty(self) -> None:
         tk = self._tk()
-        app = ui_app.BattleBuddyApp(tk)
-        try:
-            app.root.withdraw()
-            app._war_room_next()
-            empty = app.war_room_out.get("1.0", "end")
-            self.assertIn("Hold a place first.", empty)
-            self.assertNotIn("Hold a place first.", app.ask_out.get("1.0", "end"))
-            app.hold_entry.insert(0, "mill pond")
-            app._war_room_hold()
-            app._war_room_next()
-            shown = app.war_room_out.get("1.0", "end")
-            self.assertIn("mill pond", shown)
-            self.assertIn("One move:", shown)
-            ask = app.ask_out.get("1.0", "end")
-            self.assertNotIn("One move:", ask)
-            self.assertNotIn("Next brick:", ask)
-        finally:
-            app._on_close()
+        from unittest.mock import patch
+
+        with patch("battlebuddy.ui.app.speak_async"):
+            app = ui_app.BattleBuddyApp(tk)
+            try:
+                app.root.withdraw()
+                app._war_room_next()
+                empty = app.war_room_out.get("1.0", "end")
+                self.assertIn("Hold a place first.", empty)
+                self.assertNotIn("Hold a place first.", app.ask_out.get("1.0", "end"))
+                app.hold_entry.insert(0, "mill pond")
+                app._war_room_hold()
+                app._war_room_next()
+                shown = app.war_room_out.get("1.0", "end")
+                self.assertIn("mill pond", shown)
+                self.assertIn("One move:", shown)
+                ask = app.ask_out.get("1.0", "end")
+                self.assertNotIn("One move:", ask)
+                self.assertNotIn("Next brick:", ask)
+            finally:
+                app._on_close()

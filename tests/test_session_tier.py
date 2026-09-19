@@ -141,23 +141,26 @@ class SessionTierUiTest(unittest.TestCase):
         old = os.environ.get("BATTLEBUDDY_HOME")
         os.environ["BATTLEBUDDY_HOME"] = str(home)
         os.environ.pop("XAI_API_KEY", None)
+        from unittest.mock import patch
+
         try:
-            app = ui_app.BattleBuddyApp(tk)
-            try:
-                app.root.withdraw()
-                self.assertIn("Gentle", app.war_line.cget("text"))
-                app.hold_entry.insert(0, "mill pond")
-                app._war_room_hold()
-                app._select_session_tier("socratic")
-                app._war_room_next()
-                shown = app.war_room_out.get("1.0", "end")
-                self.assertIn("?", shown)
-                self.assertNotIn("One move:", shown)
-                self.assertNotIn("Say if this is wrong.", shown)
-                blob = json.loads((home / "session.json").read_text(encoding="utf-8"))
-                self.assertEqual(blob["tier"], "socratic")
-            finally:
-                app._on_close()
+            with patch("battlebuddy.ui.app.speak_async"):
+                app = ui_app.BattleBuddyApp(tk)
+                try:
+                    app.root.withdraw()
+                    self.assertIn("Gentle", app.war_line.cget("text"))
+                    app.hold_entry.insert(0, "mill pond")
+                    app._war_room_hold()
+                    app._select_session_tier("socratic")
+                    app._war_room_next()
+                    shown = app.war_room_out.get("1.0", "end")
+                    self.assertIn("?", shown)
+                    self.assertNotIn("One move:", shown)
+                    self.assertNotIn("Say if this is wrong.", shown)
+                    blob = json.loads((home / "session.json").read_text(encoding="utf-8"))
+                    self.assertEqual(blob["tier"], "socratic")
+                finally:
+                    app._on_close()
         finally:
             if old is None:
                 os.environ.pop("BATTLEBUDDY_HOME", None)

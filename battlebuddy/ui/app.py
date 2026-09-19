@@ -21,8 +21,9 @@ from battlebuddy.databank.store import DatabankStore
 from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.memory.catalog import KnowledgeCatalog, seen_on_disk_line
-from battlebuddy.memory.war_room import ROSTER_NAMES
+from battlebuddy.memory.war_room import ROSTER_NAMES, parse_war_room_line
 from battlebuddy.reminders.commands import run_line
+from battlebuddy.vision.miss import is_miss_command, miss_check
 from battlebuddy.session.tier import (
     TIER_GENTLE,
     TIER_HANDHOLD,
@@ -32,7 +33,6 @@ from battlebuddy.session.tier import (
     save_tier,
 )
 from battlebuddy.harvest.locate import load_harvest
-from battlebuddy.vision.miss import miss_check
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
@@ -41,7 +41,7 @@ from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
-from battlebuddy.voice.tts import speak_async, tts_available
+from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
 
 _BG = "#0B0B0B"
 _GOLD = "#E6C35C"
@@ -721,14 +721,27 @@ class BattleBuddyApp:
         self._set_war_room_out(result.message)
         self._refresh_war_line()
 
+    def _speak_war(self, result: object) -> None:
+        phrase = spoken_line(getattr(result, "speak", "") or getattr(result, "message", "") or "")
+        if phrase:
+            speak_async(phrase)
+
+    def _heard_coach_or_miss(self, heard: str) -> bool:
+        if is_miss_command(heard):
+            return True
+        parsed = parse_war_room_line(heard)
+        return parsed is not None and parsed.action == "coach"
+
     def _war_room_next(self) -> None:
         result = run_line(self.engine, f"next {self._war_game}")
         self._set_war_room_out(result.message)
+        self._speak_war(result)
         self._refresh_war_line()
 
     def _war_room_miss(self) -> None:
         result = run_line(self.engine, "miss check")
         self._set_war_room_out(result.message)
+        self._speak_war(result)
         self._refresh_war_line()
 
     def _field_caption(
@@ -1140,6 +1153,13 @@ class BattleBuddyApp:
             self.speak_btn.config(state="normal", text="SPEAK")
         if not heard:
             self.status.config(text="Heard nothing. Type it. Typed fallback is live.")
+            return
+        if self._heard_coach_or_miss(heard):
+            result = run_line(self.engine, heard)
+            self._set_war_room_out(result.message)
+            self._speak_war(result)
+            self._refresh_war_line()
+            self.status.config(text=result.message.split("\n")[0][:80])
             return
         self.entry.delete(0, "end")
         self.entry.insert(0, heard)

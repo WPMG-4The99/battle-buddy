@@ -29,6 +29,7 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User locates Corsair Cove from local Steam files (`harvest` / `locate corsair`). No Steam Web API.
 - User seeds Corsair Cove wiki children from the Hooded Horse hub (`seed corsair`). Public GET. No paste.
 - User asks miss check: newest local screenshot. Empty key stays dark. No process inject.
+- User hears NEXT / MISS CHECK locally. FIRE stays local TTS. Unsolicited miss is visual only.
 
 Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 

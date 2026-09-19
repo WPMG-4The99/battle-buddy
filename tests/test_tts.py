@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from battlebuddy.voice import tts
-from battlebuddy.voice.tts import hidden_console_run_kwargs
+from battlebuddy.voice.tts import hidden_console_run_kwargs, spoken_line
 
 _CREATE_NO_WINDOW = 0x08000000
 
@@ -31,6 +31,17 @@ class TtsHideConsoleTest(unittest.TestCase):
         self.assertIn("SpeechSynthesizer", speak_win)
         self.assertNotIn("openai", text.lower())
         self.assertNotIn("anthropic", text.lower())
+        self.assertIn("def spoken_line", text)
+
+
+class SpokenLineTest(unittest.TestCase):
+    def test_drops_say_wrong_and_caps(self) -> None:
+        blob = "One move: check mill pond\nWhy: that's where you left it.\nSay if this is wrong.\nGrok is dark. Scribe still holds."
+        shown = spoken_line(blob)
+        self.assertIn("One move:", shown)
+        self.assertIn("Why:", shown)
+        self.assertNotIn("Say if this is wrong.", shown)
+        self.assertLessEqual(len(shown.split()), 40)
 
 
 if __name__ == "__main__":

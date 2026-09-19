@@ -28,6 +28,20 @@ def tts_available() -> bool:
     return any(shutil.which(name) for name in ("espeak-ng", "espeak", "spd-say"))
 
 
+def spoken_line(text: str, limit: int = 40) -> str:
+    """First two lines for TTS. Drop 'Say if this is wrong.' Cap words."""
+    kept: list[str] = []
+    for line in (text or "").splitlines():
+        clean = line.strip()
+        if not clean or clean == "Say if this is wrong.":
+            continue
+        kept.append(clean)
+        if len(kept) >= 2:
+            break
+    words = " ".join(kept).split()
+    return " ".join(words[:limit])
+
+
 def speak(phrase: str) -> bool:
     """Speak locally. Returns True if a local engine was invoked. Failure is silent."""
     text = phrase.strip()

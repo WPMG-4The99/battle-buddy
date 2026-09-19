@@ -14,7 +14,7 @@ from battlebuddy.reminders.notify import announce, confirm
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks
-from battlebuddy.voice.tts import speak
+from battlebuddy.voice.tts import speak, spoken_line
 from battlebuddy.xai.loop import handle_line
 
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
@@ -150,7 +150,7 @@ def run(argv: list[str] | None = None) -> int:
     if result.kind in {"note", "notes", "games", "tier", "harvest", "seed", "miss"}:
         print(result.message)
         if result.speak:
-            speak(result.speak)
+            speak(spoken_line(result.speak) if result.kind == "miss" else result.speak)
         return 0 if result.ok else 1
 
     if result.kind == "ask":
@@ -168,7 +168,7 @@ def run(argv: list[str] | None = None) -> int:
     if result.kind == "war_room":
         print(result.message)
         if result.speak:
-            speak(result.speak)
+            speak(spoken_line(result.speak))
         return 0 if result.ok else 1
 
     if result.kind in {"snooze", "clear", "clear_all", "hygiene_stop"}:

@@ -110,3 +110,7 @@ Corsair Cove hub `https://wiki.hoodedhorse.com/Corsair_Cove/`. Same-origin child
 ## Phase 2 prove-out — miss check (Step 5)
 
 Newest local screenshot only (Cove Saved/Screenshots, Pictures/Screenshots, Steam 1368140 shots). No inject. CLI/UI `MISS CHECK`. Unsolicited at most every 5 minutes while Cove is live. Vision POST at most every 2 minutes. Empty key: path plus `Grok is dark. Scribe still holds.` Voice waits.
+
+## Phase 2 prove-out — voice (Step 6)
+
+NEXT and MISS CHECK speak through local TTS (clipped). FIRE unchanged. Unsolicited miss stays visual. SPEAK routes next/coach/miss to War Room, not reminders. No cloud TTS.
