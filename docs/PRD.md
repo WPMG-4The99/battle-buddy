@@ -86,3 +86,11 @@ Commands: `remember for <Game>:`, `where was I`, `war room`, `correct`. Typed / 
 ## Phase 2 slice 2 — War Room on the existing UI
 
 Same window. Left strip under the reminder list: roster chips, HOLD / WHERE, Hold this. Calls `run_line`. No Correct button. No walk-in game box. Reminder SUBMIT stays reminders.
+
+## Phase 2 slice 3 — Coach (one move)
+
+Deterministic next brick from the selected War Room row only (trap, else place, else decision, else patch). No wiki. No model. No account. CLI: `next` / `coach` / `what now`. UI: gold NEXT beside WHERE. HOLD stays primary.
+
+## Phase 2 prove-out — session help (Step 1)
+
+`BATTLEBUDDY_HOME/session.json` holds `{ "tier": "gentle" }`. Default Gentle. Mid-session `tier handhold` / `tier gentle` / `tier socratic` (and spoken aliases) changes the next NEXT line. Template Coach only. Empty key is correct. Harvest, Grok, vision, and Steam API wait.

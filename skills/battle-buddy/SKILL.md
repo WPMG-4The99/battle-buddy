@@ -24,8 +24,10 @@ Voice-first external memory for a timed check in a long session. Same modules as
 - User asks to list, snooze, or clear reminders (including after a restart)
 - User starts or stops the 15/5 hygiene loop ("start hygiene", "start pomodoro", "15 5 hygiene")
 - User records or recalls standing War Room state for the home roster only (Star Citizen, Bellwright, Corsair Cove, ASKA, Clanfolk)
+- User asks what now / next / coach for that roster game (one move from fields already on disk)
+- User sets help: `tier handhold` / `tier gentle` / `tier socratic` (session.json, next NEXT uses it)
 
-Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, Coach, or Intel.
+Do not use for: sign-up, login, email, OAuth, Steam keys, cloud STT, calendar sync, wellness coaching, walk-in titles, or Intel.
 
 ## Prerequisites
 
@@ -97,8 +99,10 @@ Never send audio to a cloud. Never ask for an API key.
 | Where was I | `python -m battlebuddy where was I in Bellwright` |
 | War Room | `python -m battlebuddy war room Bellwright` |
 | Correct | `python -m battlebuddy correct Bellwright place: west ridge` |
+| Next brick (Coach) | `python -m battlebuddy next Bellwright` |
+| Help tier | `python -m battlebuddy tier gentle` |
 
-State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Do not commit them.
+State file: `~/.battlebuddy/memory.json` (override with `BATTLEBUDDY_HOME`). Hygiene loop state: `hygiene.json` next to it. Games, notes, and War Room: `catalog.sqlite`. Session help: `session.json`. Do not commit them.
 
 ```text
 terminal(command="python -m battlebuddy note granary is low")

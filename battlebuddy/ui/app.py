@@ -23,6 +23,14 @@ from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.memory.catalog import KnowledgeCatalog, seen_on_disk_line
 from battlebuddy.memory.war_room import ROSTER_NAMES
 from battlebuddy.reminders.commands import run_line
+from battlebuddy.session.tier import (
+    TIER_GENTLE,
+    TIER_HANDHOLD,
+    TIER_LABELS,
+    TIER_SOCRATIC,
+    load_tier,
+    save_tier,
+)
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
@@ -59,6 +67,11 @@ _WAR_KINDS: tuple[tuple[str, str], ...] = (
     ("Trap", "trap"),
     ("Decision", "decision"),
     ("Patch", "patch"),
+)
+_TIER_CHIPS: tuple[tuple[str, str], ...] = (
+    ("Hand-hold", TIER_HANDHOLD),
+    ("Gentle", TIER_GENTLE),
+    ("Socratic", TIER_SOCRATIC),
 )
 _SAY_WRONG = "Say if this is wrong."
 
@@ -448,8 +461,10 @@ class BattleBuddyApp:
         last = KnowledgeCatalog().last_roster()
         self._war_game = last[0] if last is not None else "Bellwright"
         self._war_kind = "place"
+        self._session_tier = load_tier()
         self._roster_btns: dict[str, object] = {}
         self._kind_btns: dict[str, object] = {}
+        self._tier_btns: dict[str, object] = {}
 
         strip = tk.Frame(parent, bg=_BG)
         strip.pack(side="bottom", fill="x", pady=(4, 0))
@@ -468,6 +483,20 @@ class BattleBuddyApp:
             )
             btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
             self._roster_btns[name] = btn
+
+        tiers = tk.Frame(strip, bg=_BG)
+        tiers.pack(fill="x", pady=(0, 4))
+        for label, key in _TIER_CHIPS:
+            btn = tk.Button(
+                tiers,
+                text=label,
+                font=("Arial", 14, "bold"),
+                relief="flat",
+                cursor="hand2",
+                command=lambda k=key: self._select_session_tier(k),
+            )
+            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            self._tier_btns[key] = btn
 
         self.war_line = tk.Label(
             strip,
@@ -531,11 +560,30 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._war_room_where,
         )
-        self.where_btn.pack(side="left", expand=True, fill="x", ipady=8)
+        self.where_btn.pack(
+            side="left",
+            expand=True,
+            fill="x",
+            ipady=8,
+            padx=(0, 8),
+        )
+        self.next_btn = tk.Button(
+            actions,
+            text="NEXT",
+            font=("Arial", 18, "bold"),
+            bg=_GOLD,
+            fg=_BG,
+            activebackground="#F0D78A",
+            activeforeground=_BG,
+            relief="flat",
+            cursor="hand2",
+            command=self._war_room_next,
+        )
+        self.next_btn.pack(side="left", expand=True, fill="x", ipady=8)
 
         self.war_room_out = tk.Text(
             strip,
-            height=3,
+            height=5,
             font=("Arial", 13),
             bg=_INPUT_BG,
             fg=_FG,
@@ -567,6 +615,19 @@ class BattleBuddyApp:
                 activebackground=_GOLD if selected else _BTN_DARK_HI,
                 activeforeground=_BG if selected else _FG,
             )
+        for key, btn in self._tier_btns.items():
+            selected = key == self._session_tier
+            btn.config(
+                bg=_GOLD if selected else _BTN_DARK,
+                fg=_BG if selected else _FG,
+                activebackground=_GOLD if selected else _BTN_DARK_HI,
+                activeforeground=_BG if selected else _FG,
+            )
+
+    def _select_session_tier(self, key: str) -> None:
+        self._session_tier = save_tier(key)
+        self._paint_war_chips()
+        self._refresh_war_line()
 
     def _select_war_game(self, name: str) -> None:
         self._war_game = name
@@ -578,12 +639,18 @@ class BattleBuddyApp:
         self._paint_war_chips()
 
     def _refresh_war_line(self) -> None:
+        self._session_tier = load_tier()
+        self._paint_war_chips()
         name = self._war_game
         row = KnowledgeCatalog().war_room_row(game_slug(name))
+        help_label = TIER_LABELS.get(self._session_tier, TIER_LABELS[TIER_GENTLE])
         if row is None:
-            text = f"{name} · War Room empty."
+            text = f"{name} · War Room empty. · {help_label}"
         else:
-            text = war_room_oneliner(name, row.get("place"), row.get("patch"))
+            text = (
+                f"{war_room_oneliner(name, row.get('place'), row.get('patch'))}"
+                f" · {help_label}"
+            )
         self.war_line.config(text=text)
 
     def _set_war_room_out(self, text: str) -> None:
@@ -591,7 +658,11 @@ class BattleBuddyApp:
         if pane is None:
             return
         shown = (text or "").rstrip()
-        if shown and _SAY_WRONG not in shown:
+        skip_say = (
+            shown == "Hold a place first."
+            or ("?" in shown and "One move:" not in shown and "Action:" not in shown)
+        )
+        if shown and _SAY_WRONG not in shown and not skip_say:
             shown = f"{shown}\n{_SAY_WRONG}"
         try:
             pane.config(state="normal")
@@ -619,6 +690,11 @@ class BattleBuddyApp:
 
     def _war_room_where(self) -> None:
         result = run_line(self.engine, f"where was I in {self._war_game}")
+        self._set_war_room_out(result.message)
+        self._refresh_war_line()
+
+    def _war_room_next(self) -> None:
+        result = run_line(self.engine, f"next {self._war_game}")
         self._set_war_room_out(result.message)
         self._refresh_war_line()
 

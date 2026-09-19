@@ -65,6 +65,15 @@ _WRONG = re.compile(
     r"(?:\s*:\s*(?P<text>.+))?$",
     re.IGNORECASE,
 )
+_COACH_IN = re.compile(
+    r"^(?:next|coach|what\s+now)\s+in\s+(?P<game>.+)$",
+    re.IGNORECASE,
+)
+_COACH_GAME = re.compile(
+    r"^(?:next|coach|what\s+now)\s+(?P<game>.+)$",
+    re.IGNORECASE,
+)
+_COACH = re.compile(r"^(?:next|coach|what\s+now)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -170,6 +179,25 @@ def parse_war_room_line(line: str) -> WarRoomCommand | None:
             kind=match.group("kind").lower(),
             text=replacement.strip() if replacement else None,
         )
+
+    match = _COACH_IN.match(raw)
+    if match:
+        return WarRoomCommand(
+            action="coach",
+            game=match.group("game").strip(),
+            kind=None,
+            text=None,
+        )
+    match = _COACH_GAME.match(raw)
+    if match:
+        return WarRoomCommand(
+            action="coach",
+            game=match.group("game").strip(),
+            kind=None,
+            text=None,
+        )
+    if _COACH.match(raw):
+        return WarRoomCommand(action="coach", game=None, kind=None, text=None)
 
     return None
 

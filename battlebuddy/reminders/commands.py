@@ -10,7 +10,15 @@ from battlebuddy.memory.catalog import (
     is_notes_command,
     parse_note,
 )
+from battlebuddy.memory.coach import format_coach
 from battlebuddy.memory.war_room import ROSTER_REFUSE, parse_war_room_line, resolve_roster
+from battlebuddy.session.tier import (
+    is_tier_command,
+    load_tier,
+    parse_tier_line,
+    save_tier,
+    set_tier_message,
+)
 from battlebuddy.reminders.engine import Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import start_loop, stop_loop
 from battlebuddy.reminders.notify import confirm_line
@@ -67,13 +75,58 @@ def _run_war_room(command_line: str) -> ActionResult | None:
     if parsed.action == "correct":
         kind = parsed.kind or "place"
         return _war_room_result(True, catalog.correct(name, slug, kind, parsed.text))
+    if parsed.action == "coach":
+        return _war_room_result(True, _coach_from_catalog(catalog, slug))
     return None
+
+
+def _latest_active(lines: list, kind: str) -> str | None:
+    found: str | None = None
+    for line in lines:
+        if not line.get("active"):
+            continue
+        if str(line.get("kind") or "") != kind:
+            continue
+        text = str(line.get("text") or "").strip()
+        if text:
+            found = text
+    return found
+
+
+def _coach_from_catalog(catalog: KnowledgeCatalog, slug: str) -> str:
+    row = catalog.war_room_row(slug)
+    lines = catalog.war_room_lines(slug)
+    place = None
+    patch = None
+    if row is not None:
+        place = str(row.get("place") or "").strip() or None
+        patch = str(row.get("patch") or "").strip() or None
+    return format_coach(
+        place=place,
+        patch=patch,
+        trap=_latest_active(lines, "trap"),
+        decision=_latest_active(lines, "decision"),
+        tier=load_tier(),
+    )
 
 
 def run_line(engine: ReminderEngine, line: str) -> ActionResult:
     raw = " ".join(line.strip().split())
     if not raw:
         return ActionResult(kind="unknown", ok=False, message="Empty.", speak="")
+
+    if is_tier_command(raw):
+        found = parse_tier_line(raw)
+        if found is None:
+            return ActionResult(
+                kind="tier",
+                ok=False,
+                message="Unknown help. Use handhold, gentle, or socratic.",
+                speak="",
+            )
+        saved = save_tier(found)
+        line_out = set_tier_message(saved)
+        return ActionResult(kind="tier", ok=True, message=line_out, speak=line_out)
 
     war_room = _run_war_room(raw)
     if war_room is not None:
@@ -198,7 +251,9 @@ def unknown_result() -> ActionResult:
             "  remember for Bellwright: mill pond\n"
             "  where was I in Bellwright\n"
             "  war room Bellwright\n"
-            "  correct Bellwright place: west ridge"
+            "  correct Bellwright place: west ridge\n"
+            "  next Bellwright\n"
+            "  tier gentle"
         ),
         speak="",
     )
