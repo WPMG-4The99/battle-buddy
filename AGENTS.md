@@ -45,5 +45,22 @@ Never in product or README: Satan/Satanic, worship/obedience/submission, Hooah, 
 
 ## North star
 
-We are not asking for a seat at their table. We built a revolution instead.  
+We are not asking for a seat at their table. We built a revolution instead. 
 For the forgotten 99%, we rise.
+
+## Cursor Cloud specific instructions
+
+Stdlib only. Python 3.10+. No pip. No venv. No account and no API key.
+
+Linux UI and Tk tests need `python3-tk`. Local TTS needs `espeak-ng`. The Cloud Agent install command installs both. The typed CLI works without them.
+
+```text
+python3 -m battlebuddy --no-wait remind me in 1 minute to check food stores
+python3 -m battlebuddy list
+python3 -m battlebuddy ui
+python3 -m unittest discover -s tests
+```
+
+State is `~/.battlebuddy` or `BATTLEBUDDY_HOME`. Do not commit it.
+
+`python3 -m unittest discover -s tests` can abort the interpreter at the end on Linux (`Tcl_AsyncDelete`) after Tk windows from UI tests. Run the modules if that happens. `test_xai.SourceLawTest.test_hosts_stay_out_of_reason_and_tts` fails because `battlebuddy/ui/app.py` reads `XAI_API_KEY`. That is product code, not a missing package.
