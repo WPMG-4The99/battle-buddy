@@ -40,6 +40,7 @@ from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
+from battlebuddy.readthis.service import ReadAloud
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
 from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
@@ -200,6 +201,9 @@ def _voice_footer() -> str:
 
 
 def run_ui() -> int:
+    from battlebuddy.readthis.screen import enable_dpi_awareness
+
+    enable_dpi_awareness()
     try:
         import tkinter as tk
     except ImportError:
@@ -235,16 +239,26 @@ class BattleBuddyApp:
         self._fetching = False
         self._asking = False
         self._seed_started: set[str] = set()
+        self.reader = ReadAloud(self._read_status, lambda: self._game_name, self._read_saved)
 
         self.root.minsize(1000, 640)
         self.root.geometry("1200x800")
 
         self._build()
+        self.reader.bind_ui(self.tk, self.root)
+        try:
+            self.read_line.config(text=self.reader.hint)
+        except Exception:
+            pass
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._warm_bundled_llm, daemon=True).start()
         self.root.after(_POLL_MS, self._tick)
 
     def run(self) -> None:
+        try:
+            self.reader.start_hotkey()
+        except Exception:
+            pass
         self.root.mainloop()
 
     def _build(self) -> None:
@@ -338,6 +352,19 @@ class BattleBuddyApp:
             command=self._scan_now,
         )
         self.scan_btn.pack(side="right", ipadx=16, ipady=10)
+        self.read_btn = tk.Button(
+            game_row,
+            text="READ THIS",
+            font=("Arial", 16, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._read_this,
+        )
+        self.read_btn.pack(side="right", ipadx=12, ipady=10, padx=(0, 8))
         self.seen_line = tk.Label(
             parent,
             text=seen_on_disk_line(self.catalog.list_games(), self.catalog.list_notes()),
@@ -349,6 +376,17 @@ class BattleBuddyApp:
             justify="left",
         )
         self.seen_line.pack(fill="x", pady=(4, 8))
+        self.read_line = tk.Label(
+            parent,
+            text="Read This · Ctrl+Alt+R",
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+            wraplength=480,
+            justify="left",
+        )
+        self.read_line.pack(fill="x", pady=(0, 6))
 
         self._field_caption(parent, "Reminder", "Lock a time reminder here")
 
@@ -813,6 +851,32 @@ class BattleBuddyApp:
         self.url_entry = self.ask_entry
         self.ask_entry.pack(side="left", expand=True, fill="x", ipady=10)
         self.ask_entry.bind("<Return>", lambda _event: self._submit_query())
+        self.read_again_btn = tk.Button(
+            query_row,
+            text="READ AGAIN",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._read_again,
+        )
+        self.read_again_btn.pack(side="left", ipady=10, padx=(10, 0))
+        self.repeat_btn = tk.Button(
+            query_row,
+            text="REPEAT LAST",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._repeat_last,
+        )
+        self.repeat_btn.pack(side="left", ipady=10, padx=(8, 0))
         self.query_btn = tk.Button(
             query_row,
             text="Submit",
@@ -825,7 +889,7 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._submit_query,
         )
-        self.query_btn.pack(side="left", ipady=10, padx=(10, 0))
+        self.query_btn.pack(side="left", ipady=10, padx=(8, 0))
         self.fetch_btn = self.query_btn
         self.ask_btn = self.query_btn
 
@@ -1388,6 +1452,35 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _read_status(self, text: str) -> None:
+        """Read This feedback. Reminder FIRE status stays on its own label."""
+
+        def _apply() -> None:
+            try:
+                self.read_line.config(text=text)
+            except Exception:
+                return
+
+        try:
+            self.root.after(0, _apply)
+        except Exception:
+            return
+
+    def _read_saved(self) -> None:
+        try:
+            self.root.after(0, self._refresh_seen)
+        except Exception:
+            return
+
+    def _read_this(self) -> None:
+        self.reader.start_select()
+
+    def _read_again(self) -> None:
+        self.reader.read_again()
+
+    def _repeat_last(self) -> None:
+        self.reader.repeat_last()
+
     def _scan_now(self) -> None:
         """Immediate rescan. Ignores the 5s poll throttle. Fire stays live."""
         try:
@@ -1628,6 +1721,10 @@ class BattleBuddyApp:
 
     def _on_close(self) -> None:
         self._clear_drafts()
+        try:
+            self.reader.shutdown()
+        except Exception:
+            pass
         try:
             stop_bundled_server()
         except Exception:
