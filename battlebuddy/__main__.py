@@ -20,6 +20,7 @@ from battlebuddy.xai.loop import handle_line
 _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
   python -m battlebuddy ui
+  Read This: Ctrl+Alt+R, or the READ THIS button. pip install -r requirements-readthis.txt
   python -m battlebuddy remind me in 1 minute to check food stores
   python -m battlebuddy hygiene start
   python -m battlebuddy hygiene stop
