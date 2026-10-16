@@ -41,6 +41,7 @@ from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.readthis.service import ReadAloud
+from battlebuddy.snap.service import SnapAsk
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
 from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
@@ -240,12 +241,18 @@ class BattleBuddyApp:
         self._asking = False
         self._seed_started: set[str] = set()
         self.reader = ReadAloud(self._read_status, lambda: self._game_name, self._read_saved)
+        self.snap = SnapAsk(
+            self._read_status,
+            lambda: self._game_name,
+            lambda: self.databank,
+        )
 
         self.root.minsize(1000, 640)
         self.root.geometry("1200x800")
 
         self._build()
         self.reader.bind_ui(self.tk, self.root)
+        self.snap.bind_ui(self.tk, self.root)
         try:
             self.read_line.config(text=self.reader.hint)
         except Exception:
@@ -257,6 +264,7 @@ class BattleBuddyApp:
     def run(self) -> None:
         try:
             self.reader.start_hotkey()
+            self.snap.start_hotkey()
         except Exception:
             pass
         self.root.mainloop()
@@ -365,6 +373,32 @@ class BattleBuddyApp:
             command=self._read_this,
         )
         self.read_btn.pack(side="right", ipadx=12, ipady=10, padx=(0, 8))
+        self.snap_btn = tk.Button(
+            game_row,
+            text="SNAP",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._snap_monitor,
+        )
+        self.snap_btn.pack(side="right", ipadx=8, ipady=10, padx=(0, 8))
+        self.snap_box_btn = tk.Button(
+            game_row,
+            text="SNAP BOX",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._snap_box,
+        )
+        self.snap_box_btn.pack(side="right", ipadx=8, ipady=10, padx=(0, 8))
         self.seen_line = tk.Label(
             parent,
             text=seen_on_disk_line(self.catalog.list_games(), self.catalog.list_notes()),
@@ -1472,6 +1506,12 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _snap_monitor(self) -> None:
+        self.snap.snap_monitor()
+
+    def _snap_box(self) -> None:
+        self.snap.snap_box()
+
     def _read_this(self) -> None:
         self.reader.start_select()
 
@@ -1723,6 +1763,7 @@ class BattleBuddyApp:
         self._clear_drafts()
         try:
             self.reader.shutdown()
+            self.snap.shutdown()
         except Exception:
             pass
         try:
