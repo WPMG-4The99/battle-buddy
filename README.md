@@ -54,6 +54,14 @@ pip install -r requirements-readthis.txt
 
 Windows OCR is the default. `winsdk` is used when that package imports. When it does not (no wheel for this Python), Battle Buddy calls the same Windows.Media.Ocr engine through Windows PowerShell. No compiler. Tesseract is the fallback (`pytesseract` plus the Tesseract binary on PATH). The grab prefers `mss` and falls back to Pillow. Each read is saved as a note so ASK can search it. Set `BATTLEBUDDY_SAVE_READS=0` to skip the note.
 
+## Snap & Ask
+
+**Ctrl+Shift+F10** grabs the monitor under the pointer (Stellaris eats Alt). Local OCR, same path as Read This, then a spoken answer from that text plus this game's notes and databank. **SNAP** does the full monitor. **SNAP BOX** drags a region first. Esc stops speech. A follow-up box takes a typed question, or the mic when the box is empty.
+
+Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`.
+
+Brain local uses the sidecar when it is up, and the on-screen text when it is not. Brain Grok sends the text only. The image stays on the box unless `BATTLEBUDDY_SNAP_SEND_IMAGE=1`.
+
 ## Demo
 
 PHYRE on a reel, no login: [watch the share page](https://reporeel-marlandoj.zocomputer.io/v/orZ8RaBQ). Reel by Marlando ([RepoReel](https://github.com/marlandoj/reporeel)). For the forgotten 99%. Oorah.
@@ -131,6 +139,7 @@ battlebuddy/memory/            local JSON reminders + SQLite catalog
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
 battlebuddy/readthis/          region grab, local OCR, read aloud
+battlebuddy/snap/              Snap & Ask. Monitor grab, sourced snap fact
 battlebuddy/game_detect/       local process SCAN. No Steam API.
 battlebuddy/databank/          public wiki GET, local ASK
 battlebuddy/xai/               optional Grok map/compile (env key only)
