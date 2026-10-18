@@ -113,6 +113,14 @@ class ReadAloud:
         self._cancel_work()
         self._begin_read(rect)
 
+    def stop_talking(self) -> None:
+        """Cut current speech. Idle calls are safe. Does not cancel a drag."""
+        if self._closed:
+            return
+        self._cancel_work()
+        self._busy = False
+        self._status("Stopped.")
+
     def repeat_last(self) -> None:
         """Speak the last cleaned text again. No new grab."""
         if self._closed:

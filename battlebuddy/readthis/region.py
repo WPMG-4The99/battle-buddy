@@ -52,6 +52,14 @@ def contains_point(rect: Rect, x: int, y: int) -> bool:
     )
 
 
+def layer_index_at(x: int, y: int, monitors: list[Rect]) -> int | None:
+    """Monitor index that owns this virtual-desktop point, or None."""
+    for index, monitor in enumerate(monitors):
+        if contains_point(monitor, int(x), int(y)):
+            return index
+    return None
+
+
 def intersect_rect(a: Rect, b: Rect) -> Rect | None:
     """Overlap of two rectangles, or None when they miss."""
     hit = clamp_rect(a, b)

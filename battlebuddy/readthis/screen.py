@@ -163,6 +163,42 @@ def pin_topmost(hwnd: int, bounds: Rect) -> None:
         return
 
 
+def make_clickable(hwnd: int) -> None:
+    """Clear click-through styles so an alpha overlay still takes the mouse."""
+    if sys.platform != "win32" or not hwnd or _user32 is None:
+        return
+    try:
+        _make_clickable(hwnd)
+    except Exception:
+        return
+
+
+def capture_mouse(hwnd: int) -> None:
+    """Win32 SetCapture so a drag keeps moving after it leaves one overlay."""
+    if sys.platform != "win32" or not hwnd or _user32 is None:
+        return
+    try:
+        import ctypes
+
+        root = _root_hwnd(hwnd)
+        _user32.SetCapture.argtypes = [ctypes.c_void_p]
+        _user32.SetCapture.restype = ctypes.c_void_p
+        _user32.SetCapture(root)
+    except Exception:
+        return
+
+
+def release_mouse() -> None:
+    if sys.platform != "win32" or _user32 is None:
+        return
+    try:
+        _user32.ReleaseCapture.argtypes = []
+        _user32.ReleaseCapture.restype = ctypes.c_bool
+        _user32.ReleaseCapture()
+    except Exception:
+        return
+
+
 def _pin_topmost(hwnd: int, bounds: Rect) -> None:
     import ctypes
     from ctypes import wintypes
@@ -383,3 +419,31 @@ def _force_topmost_style(hwnd: int) -> None:
     set_long.restype = ctypes.c_ssize_t
     style = int(get_long(hwnd, GWL_EXSTYLE))
     set_long(hwnd, GWL_EXSTYLE, style | WS_EX_TOPMOST | WS_EX_TOOLWINDOW)
+
+
+def _make_clickable(hwnd: int) -> None:
+    import ctypes
+
+    user32 = _user32
+    root = _root_hwnd(hwnd)
+    GWL_EXSTYLE = -20
+    WS_EX_TRANSPARENT = 0x00000020
+    WS_EX_NOACTIVATE = 0x08000000
+    WS_EX_LAYERED = 0x00080000
+    WS_EX_TOPMOST = 0x00000008
+    try:
+        get_long = user32.GetWindowLongPtrW
+        set_long = user32.SetWindowLongPtrW
+    except AttributeError:
+        get_long = user32.GetWindowLongW
+        set_long = user32.SetWindowLongW
+    get_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    get_long.restype = ctypes.c_ssize_t
+    set_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+    set_long.restype = ctypes.c_ssize_t
+    style = int(get_long(root, GWL_EXSTYLE))
+    style = (style | WS_EX_LAYERED | WS_EX_TOPMOST) & ~WS_EX_TRANSPARENT & ~WS_EX_NOACTIVATE
+    set_long(root, GWL_EXSTYLE, style)
+    user32.EnableWindow.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+    user32.EnableWindow.restype = ctypes.c_bool
+    user32.EnableWindow(root, True)

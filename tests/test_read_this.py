@@ -28,9 +28,11 @@ from battlebuddy.readthis.hotkey import (
     parse_hotkey,
 )
 from battlebuddy.readthis.ocr import should_invert
+from battlebuddy.readthis.overlay import SelectionSession
 from battlebuddy.readthis.region import (
     Rect,
     contains_point,
+    layer_index_at,
     local_rect,
     selection_rect,
     union_rects,
@@ -184,6 +186,18 @@ class MultiMonitorMapTest(unittest.TestCase):
         )
         self.assertEqual(rect.as_bbox(), (-2560, -200, -2160, 100))
 
+    def test_drag_can_start_on_a_non_primary_monitor(self) -> None:
+        monitors = [self._PRIMARY, self._LEFT, self._ABOVE]
+        session = SelectionSession(monitors)
+        self.assertEqual(layer_index_at(-400, 80, monitors), 1)
+        self.assertEqual(session.press(-400, 80), 1)
+        self.assertNotEqual(session.start, (0, 0))
+        rect = session.release(-120, 240)
+        self.assertEqual(rect, Rect(-400, 80, 280, 160))
+        self.assertEqual(session.press(40, -900), 2)
+        above = session.release(200, -700)
+        self.assertEqual(above, Rect(40, -900, 160, 200))
+
     def test_overlay_uses_every_monitor_not_only_the_pointer(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]
@@ -192,7 +206,10 @@ class MultiMonitorMapTest(unittest.TestCase):
             / "overlay.py"
         ).read_text(encoding="utf-8")
         self.assertIn("overlay_layout", source)
+        self.assertIn("bind_all", source)
+        self.assertIn("capture_mouse", source)
         self.assertNotIn("monitor_at_cursor", source)
+        self.assertNotIn("grab_set", source)
 
     def test_dpi_awareness_is_per_monitor(self) -> None:
         self.assertEqual(PER_MONITOR_AWARE_V2, -4)
@@ -285,6 +302,21 @@ class CaptureAndSpeechContractTest(unittest.TestCase):
         stop_speaking()
         self.assertFalse(is_speaking())
 
+    def test_stop_talking_is_safe_when_idle(self) -> None:
+        from battlebuddy.readthis.service import ReadAloud
+        from battlebuddy.snap.service import SnapAsk
+
+        seen: list[str] = []
+        reader = ReadAloud(seen.append, lambda: None)
+        reader.stop_talking()
+        self.assertIn("Stopped.", seen)
+        snap_seen: list[str] = []
+        snap = SnapAsk(snap_seen.append, lambda: None)
+        snap.stop_talking()
+        self.assertIn("Stopped.", snap_seen)
+        stop_speaking()
+        self.assertFalse(is_speaking())
+
     def test_ui_exposes_read_buttons(self) -> None:
         source = (
             Path(__file__).resolve().parents[1] / "battlebuddy" / "ui" / "app.py"
@@ -292,12 +324,15 @@ class CaptureAndSpeechContractTest(unittest.TestCase):
         self.assertIn('text="READ THIS"', source)
         self.assertIn('text="READ AGAIN"', source)
         self.assertIn('text="REPEAT LAST"', source)
+        self.assertIn('text="STOP TALKING"', source)
+        self.assertIn("self._stop_talking", source)
         self.assertIn('text="SCAN"', source)
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("Ctrl+Alt+R", readme)
         self.assertIn("every connected monitor", readme)
+        self.assertIn("STOP TALKING", readme)
         self.assertIn("requirements-readthis.txt", readme)
 
 

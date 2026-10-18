@@ -144,6 +144,13 @@ class SnapAsk:
             self._overlay = None
             self._status("Could not open the snap box.")
 
+    def stop_talking(self) -> None:
+        """Cut current speech. Idle calls are safe. Does not cancel a drag."""
+        if self._closed:
+            return
+        self._cancel()
+        self._status("Stopped.")
+
     def ask_followup(self, question: str | None = None) -> None:
         """Typed question, or the mic when the box is empty."""
         if self._closed:
