@@ -56,7 +56,7 @@ Windows OCR is the default. `winsdk` is used when that package imports. When it 
 
 ## Snap & Ask
 
-**Ctrl+2** grabs the monitor under the pointer. Local OCR, same path as Read This, then a spoken answer from that text plus this game's notes and databank. **SNAP** does the full monitor under the pointer. **SNAP BOX** dims every connected monitor and drags a region first, including across a boundary. Esc, **Ctrl+3**, or **STOP TALKING** stops speech and cancels an open SNAP BOX. A follow-up box takes a typed question, or the mic when the box is empty.
+**Ctrl+2** grabs the monitor under the pointer. Local OCR, same path as Read This, then a spoken summary of that screen plus this game's notes and databank. A follow-up box says **Ask about this screen…** with focus in the field. Enter submits. Empty Enter describes the screen again and speaks it. If OCR, the brain, or the network fails, Battle Buddy speaks a short error instead of going silent. Failures land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`. **SNAP** does the full monitor under the pointer. **SNAP BOX** dims every connected monitor and drags a region first, including across a boundary. Esc, **Ctrl+3**, or **STOP TALKING** stops speech and cancels an open SNAP BOX.
 
 Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
 
@@ -99,7 +99,7 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Failures append to `battlebuddy.log`. Not committed.
 
 ```text
 python -m battlebuddy note granary is low

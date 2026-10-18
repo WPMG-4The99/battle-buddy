@@ -21,12 +21,13 @@ from battlebuddy.readthis.ocr import recognize
 from battlebuddy.readthis.overlay import RegionOverlay
 from battlebuddy.readthis.region import Rect
 from battlebuddy.readthis.screen import monitor_at_cursor
+from battlebuddy.session.log import report
 from battlebuddy.session.tier import load_brain
 from battlebuddy.snap.answer import DEFAULT_QUESTION
 from battlebuddy.snap.config import load_snap_hotkey, snap_hotkey_label
 from battlebuddy.snap.pipeline import SnapResult, finish_snap
 from battlebuddy.snap.shots import fitted_size
-from battlebuddy.voice.stt import listen_once, stt_available
+from battlebuddy.voice.stt import listen_once
 from battlebuddy.voice.tts import speak, stop_speaking
 from battlebuddy.xai.loop import api_key, chat
 
@@ -83,7 +84,9 @@ class SnapAsk:
         self._tk: object | None = None
         self._root: object | None = None
         self._last_ocr = ""
+        self._last_answer = ""
         self._last_game: str | None = None
+        self._answer_label: object | None = None
 
     @property
     def hotkey_label(self) -> str:
@@ -165,27 +168,22 @@ class SnapAsk:
         self._status("Stopped.")
 
     def ask_followup(self, question: str | None = None) -> None:
-        """Typed question, or the mic when the box is empty."""
+        """Typed question. Empty Enter describes the screen and speaks it."""
         if self._closed:
             return
         if not self._last_ocr:
             self._status("Snap first.")
             return
-        self._cancel()
         asked = (question if question is not None else self._entry_text()).strip()
+        if not asked:
+            asked = DEFAULT_QUESTION
+        self._cancel()
         token = self._token
-        if asked:
-            threading.Thread(
-                target=self._answer_worker,
-                args=(self._last_ocr, self._last_game, asked, token),
-                daemon=True,
-            ).start()
-            return
-        if not stt_available():
-            self._status("Type a question about the snap.")
-            return
-        self._status("Listening.")
-        threading.Thread(target=self._listen_worker, args=(token,), daemon=True).start()
+        threading.Thread(
+            target=self._answer_worker,
+            args=(self._last_ocr, self._last_game, asked, token),
+            daemon=True,
+        ).start()
 
     def _on_hotkey(self) -> None:
         root = self._root
@@ -230,45 +228,54 @@ class SnapAsk:
         self._status(f"Snap · {self.hotkey_label}")
 
     def _monitor_worker(self, root: object | None, token: int) -> None:
-        if token != self._token or self._closed:
-            return
         try:
-            _rect, image = grab_monitor(root)
-        except ReadError as exc:
-            self._status(str(exc))
-            return
-        except Exception:
-            self._status("Snap could not grab that monitor.")
-            return
-        self._read_image(image, token)
+            if token != self._token or self._closed:
+                return
+            try:
+                _rect, image = grab_monitor(root)
+            except ReadError as exc:
+                self._fail(str(exc) or "Snap could not grab that monitor.")
+                return
+            except Exception as exc:
+                self._fail("Snap could not grab that monitor.", exc)
+                return
+            self._read_image(image, token)
+        except Exception as exc:
+            self._fail("Snap failed.", exc)
 
     def _rect_worker(self, rect: Rect, token: int) -> None:
-        if token != self._token or self._closed:
-            return
         try:
-            image = capture_region(rect)
-        except ReadError as exc:
-            self._status(str(exc))
-            return
-        except Exception:
-            self._status("Snap could not grab that box.")
-            return
-        self._read_image(image, token)
+            if token != self._token or self._closed:
+                return
+            try:
+                image = capture_region(rect)
+            except ReadError as exc:
+                self._fail(str(exc) or "Snap could not grab that box.")
+                return
+            except Exception as exc:
+                self._fail("Snap could not grab that box.", exc)
+                return
+            self._read_image(image, token)
+        except Exception as exc:
+            self._fail("Snap failed.", exc)
 
     def _read_image(self, image: object, token: int) -> None:
         try:
             raw = recognize(shrink_for_ocr(image))
         except ReadError as exc:
-            self._status(str(exc))
+            self._fail(str(exc) or "Snap OCR failed.")
             return
-        except Exception:
-            self._status("Snap OCR failed. pip install -r requirements-readthis.txt")
+        except Exception as exc:
+            self._fail(
+                "Snap OCR failed. pip install -r requirements-readthis.txt",
+                exc,
+            )
             return
         text = clean_ocr_text(raw)
         if token != self._token or self._closed:
             return
         if not text:
-            self._status("No text in that snap.")
+            self._fail("No text in that snap.")
             return
         game = self._current_game()
         self._last_ocr = text
@@ -276,13 +283,16 @@ class SnapAsk:
         self._answer_worker(text, game, DEFAULT_QUESTION, token, image=image)
 
     def _listen_worker(self, token: int) -> None:
-        heard = listen_once()
-        if token != self._token or self._closed:
-            return
-        if not heard:
-            self._status("Heard nothing. Type it.")
-            return
-        self._answer_worker(self._last_ocr, self._last_game, heard, token)
+        try:
+            heard = listen_once()
+            if token != self._token or self._closed:
+                return
+            if not heard:
+                self._fail("Heard nothing. Type it.")
+                return
+            self._answer_worker(self._last_ocr, self._last_game, heard, token)
+        except Exception as exc:
+            self._fail("Snap listen failed.", exc)
 
     def _answer_worker(
         self,
@@ -292,58 +302,79 @@ class SnapAsk:
         token: int,
         image: object | None = None,
     ) -> None:
-        if token != self._token or self._closed or not ocr_text:
-            return
-        self._busy = True
-        home = default_home()
         try:
-            notes = [item.text for item in KnowledgeCatalog(home).list_notes(game)[:5]]
-        except Exception:
-            notes = []
-        try:
-            pages = _page_lines(self._databank() if self._databank else None, game, question)
-        except Exception:
-            pages = []
-        try:
-            if image is None:
-                result = _answer_saved(ocr_text, game, question, notes, pages, home)
-            else:
-                result = finish_snap(
-                    image,
-                    ocr_text,
+            if token != self._token or self._closed or not ocr_text:
+                return
+            self._busy = True
+            home = default_home()
+            try:
+                notes = [item.text for item in KnowledgeCatalog(home).list_notes(game)[:5]]
+            except Exception:
+                notes = []
+            try:
+                pages = _page_lines(
+                    self._databank() if self._databank else None,
                     game,
                     question,
-                    notes=notes,
-                    pages=pages,
-                    home=home,
-                    brain=load_brain(home),
-                    chat_fn=chat,
-                    local_fn=_local,
-                    key=api_key(),
                 )
-        except Exception:
+            except Exception:
+                pages = []
+            asked = (question or "").strip() or DEFAULT_QUESTION
+            try:
+                if image is None:
+                    result = _answer_saved(ocr_text, game, asked, notes, pages, home)
+                else:
+                    result = finish_snap(
+                        image,
+                        ocr_text,
+                        game,
+                        asked,
+                        notes=notes,
+                        pages=pages,
+                        home=home,
+                        brain=load_brain(home),
+                        chat_fn=chat,
+                        local_fn=_local,
+                        key=api_key(),
+                    )
+            except Exception as exc:
+                self._busy = False
+                self._fail("Snap could not answer.", exc)
+                return
+            if token != self._token or self._closed:
+                self._busy = False
+                return
+            self._speak(result, token)
+        except Exception as exc:
             self._busy = False
-            self._status("Snap could not answer.")
-            return
-        if token != self._token or self._closed:
-            self._busy = False
-            return
-        self._speak(result, token)
+            self._fail("Snap could not answer.", exc)
 
     def _speak(self, result: SnapResult, token: int) -> None:
-        self._status(result.answer)
-        self._show_followup()
+        answer = (result.answer or "").strip()
+        if not answer:
+            self._fail("Snap could not answer.")
+            return
+        self._last_answer = answer
+        self._status(answer)
         arm_escape(self._on_escape)
 
         def _allow() -> bool:
             return token == self._token and not self._closed
 
+        spoke = False
         try:
-            speak(result.answer, timeout=90, allow=_allow)
+            spoke = bool(speak(answer, timeout=90, allow=_allow))
+        except Exception as exc:
+            report("snap TTS failed", exc)
         finally:
             disarm_escape()
-        if token == self._token:
+        if not spoke:
+            report("snap TTS did not run")
+        if token != self._token or self._closed:
             self._busy = False
+            return
+        self._show_followup()
+        self._busy = False
 
     def _show_followup(self) -> None:
         root = self._root
@@ -358,6 +389,13 @@ class SnapAsk:
         if self._closed or self._tk is None or self._root is None:
             return
         if self._follow is not None:
+            self._paint_followup()
+            try:
+                entry = self._ask_entry
+                if entry is not None:
+                    entry.focus_set()  # type: ignore[attr-defined]
+            except Exception:
+                pass
             return
         tk = self._tk
         win = tk.Toplevel(self._root)  # type: ignore[attr-defined]
@@ -369,11 +407,23 @@ class SnapAsk:
             pass
         tk.Label(  # type: ignore[attr-defined]
             win,
-            text="Ask about this snap",
+            text="Ask about this screen…",
             font=("Arial", 14, "bold"),
             fg="#E6C35C",
             bg="#0B0B0B",
         ).pack(fill="x", padx=12, pady=(10, 4))
+        answer = tk.Label(  # type: ignore[attr-defined]
+            win,
+            text=self._last_answer,
+            font=("Arial", 13),
+            fg="#F4F1E8",
+            bg="#0B0B0B",
+            wraplength=420,
+            justify="left",
+            anchor="w",
+        )
+        answer.pack(fill="x", padx=12, pady=(0, 8))
+        self._answer_label = answer
         entry = tk.Entry(  # type: ignore[attr-defined]
             win,
             font=("Arial", 16),
@@ -385,6 +435,14 @@ class SnapAsk:
         entry.pack(fill="x", padx=12, ipady=6)
         entry.bind("<Return>", lambda _event: self.ask_followup())
         win.bind("<Escape>", lambda _event: self._escape_follow())
+        tk.Label(  # type: ignore[attr-defined]
+            win,
+            text="Enter submits. Empty Enter describes the screen.",
+            font=("Arial", 11),
+            fg="#C4C0B4",
+            bg="#0B0B0B",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(4, 0))
         tk.Button(  # type: ignore[attr-defined]
             win,
             text="ASK",
@@ -401,6 +459,15 @@ class SnapAsk:
         except Exception:
             pass
 
+    def _paint_followup(self) -> None:
+        label = self._answer_label
+        if label is None:
+            return
+        try:
+            label.config(text=self._last_answer)  # type: ignore[attr-defined]
+        except Exception:
+            return
+
     def _escape_follow(self) -> None:
         self._on_escape()
         self._close_follow()
@@ -409,6 +476,7 @@ class SnapAsk:
         win = self._follow
         self._follow = None
         self._ask_entry = None
+        self._answer_label = None
         if win is None:
             return
         try:
@@ -451,6 +519,16 @@ class SnapAsk:
         self._busy = False
         stop_speaking()
         disarm_escape()
+
+    def _fail(self, message: str, exc: BaseException | None = None) -> None:
+        """Show and speak a short error. Log the traceback when there is one."""
+        line = (message or "").strip() or "Snap failed."
+        report(line, exc)
+        self._status(line)
+        try:
+            speak(line, timeout=20)
+        except Exception as speak_exc:
+            report("snap error TTS failed", speak_exc)
 
     def _status(self, text: str) -> None:
         if self._closed:

@@ -13,7 +13,12 @@ from unittest.mock import patch
 from battlebuddy.readthis.hotkey import MOD_CONTROL, parse_hotkey
 from battlebuddy.readthis.region import Rect
 from battlebuddy.session.tier import load_tier, save_tier
-from battlebuddy.snap.answer import answer_snap, grok_user_content, uses_image
+from battlebuddy.snap.answer import (
+    DEFAULT_QUESTION,
+    answer_snap,
+    grok_user_content,
+    uses_image,
+)
 from battlebuddy.snap.config import (
     DEFAULT_SNAP_HOTKEY,
     load_snap_hotkey,
@@ -23,7 +28,9 @@ from battlebuddy.snap.config import (
 from battlebuddy.snap.context import grounded_answer, pack_context
 from battlebuddy.snap.facts import SOURCE_SNAP, add_snap_fact, list_snap_facts
 from battlebuddy.snap.pipeline import finish_snap, log_path
-from battlebuddy.snap.service import grab_monitor
+from battlebuddy.snap import service as snap_service
+from battlebuddy.snap.service import SnapAsk, grab_monitor
+from battlebuddy.session.log import log_file, report, setup_logging
 from battlebuddy.snap.shots import fitted_size, prune_snaps, snap_dir
 from battlebuddy.readthis.config import load_hotkey, save_hotkey
 
@@ -195,12 +202,116 @@ class AnswerTest(unittest.TestCase):
         self.assertIn('text="SNAP"', source)
         self.assertIn('text="SNAP BOX"', source)
         self.assertNotIn("superseded_by", source)
+        self.assertNotIn("XAI_API_KEY", source)
+        snap_src = Path(snap_service.__file__).read_text(encoding="utf-8")
+        self.assertIn("Ask about this screen…", snap_src)
+        self.assertIn("Empty Enter describes the screen", snap_src)
+        self.assertIn("def _fail", snap_src)
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("SNAP BOX", readme)
         self.assertIn("every connected monitor", readme)
         self.assertIn("monitor under the pointer", readme)
+        self.assertIn("battlebuddy.log", readme)
+        self.assertIn("Ask about this screen", readme)
+
+    def test_grok_exception_falls_back_to_the_pack(self) -> None:
+        def _chat(*_args: object, **_kwargs: object) -> str:
+            raise RuntimeError("network down")
+
+        pack = "Screen:\nThe colony has grown."
+        answer = answer_snap(
+            DEFAULT_QUESTION,
+            pack,
+            brain="grok",
+            chat_fn=_chat,
+            key="test-key",
+        )
+        self.assertIn("colony", answer.lower())
+        self.assertNotEqual(answer, "Snap could not answer.")
+
+    def test_empty_local_brain_falls_back_to_the_pack(self) -> None:
+        pack = "Screen:\nThe colony has grown."
+        answer = answer_snap(
+            DEFAULT_QUESTION,
+            pack,
+            brain="local",
+            local_fn=lambda _q, _p: None,
+        )
+        self.assertIn("colony", answer.lower())
+
+
+class SnapFailSurfaceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self._old_home = os.environ.get("BATTLEBUDDY_HOME")
+        os.environ["BATTLEBUDDY_HOME"] = str(self.home)
+        setup_logging(self.home)
+
+    def tearDown(self) -> None:
+        if self._old_home is None:
+            os.environ.pop("BATTLEBUDDY_HOME", None)
+        else:
+            os.environ["BATTLEBUDDY_HOME"] = self._old_home
+
+    def test_empty_followup_summarizes_the_screen(self) -> None:
+        self.assertIn("Summarize", DEFAULT_QUESTION)
+        snap = SnapAsk(lambda _text: None, lambda: None)
+        snap._last_ocr = "The colony has grown."
+        seen: list[tuple[object, ...]] = []
+        snap._answer_worker = lambda *args, **_kwargs: seen.append(args)  # type: ignore[method-assign]
+        snap.ask_followup("")
+        self.assertEqual(seen[0][2], DEFAULT_QUESTION)
+
+    def test_empty_ocr_speaks_and_shows_an_error(self) -> None:
+        spoken: list[str] = []
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: None)
+        with patch.object(snap_service, "recognize", return_value="   "), patch.object(
+            snap_service, "shrink_for_ocr", side_effect=lambda image, **_k: image
+        ), patch.object(
+            snap_service,
+            "speak",
+            side_effect=lambda phrase, **_k: spoken.append(phrase) or True,
+        ):
+            snap._read_image("frame", token=0)
+        self.assertTrue(any("No text" in line for line in shown))
+        self.assertTrue(any("No text" in line for line in spoken))
+        self.assertEqual(snap._follow, None)
+
+    def test_worker_exception_is_spoken_and_logged(self) -> None:
+        spoken: list[str] = []
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: None)
+        with patch.object(
+            snap, "_read_image", side_effect=RuntimeError("boom")
+        ), patch.object(
+            snap_service,
+            "speak",
+            side_effect=lambda phrase, **_k: spoken.append(phrase) or True,
+        ), patch.object(
+            snap_service,
+            "grab_monitor",
+            return_value=(Rect(0, 0, 10, 10), "frame"),
+        ):
+            snap._monitor_worker(None, 0)
+        self.assertTrue(any("Snap" in line for line in shown))
+        self.assertTrue(any("Snap" in line for line in spoken))
+        blob = log_file(self.home).read_text(encoding="utf-8")
+        self.assertIn("boom", blob)
+
+    def test_report_writes_traceback_to_home_log(self) -> None:
+        try:
+            raise RuntimeError("network down")
+        except RuntimeError as exc:
+            report("snap grok call failed", exc)
+        blob = log_file(self.home).read_text(encoding="utf-8")
+        self.assertIn("network down", blob)
+        self.assertIn("snap grok call failed", blob)
+        self.assertIn("Traceback", blob)
 
 
 if __name__ == "__main__":
