@@ -17,7 +17,12 @@ from battlebuddy.session.tier import (
     window_geometry,
 )
 from battlebuddy.ui import app as ui_app
-from battlebuddy.ui.layout import wrap_positions
+from battlebuddy.ui.layout import (
+    STACK_COLUMNS_BELOW,
+    columns_stacked,
+    wheel_units,
+    wrap_positions,
+)
 
 
 class WrapPositionsTest(unittest.TestCase):
@@ -36,6 +41,20 @@ class WrapPositionsTest(unittest.TestCase):
         pos, height = wrap_positions([300, 80], 200, gap=8, row_height=30)
         self.assertEqual(pos, [(0, 0), (0, 30)])
         self.assertEqual(height, 60)
+
+    def test_wheel_units_ignore_windows_question_marks(self) -> None:
+        self.assertEqual(wheel_units(-120, "??"), 1)
+        self.assertEqual(wheel_units(120, "??"), -1)
+        self.assertEqual(wheel_units(0, 4), -1)
+        self.assertEqual(wheel_units(0, 5), 1)
+        self.assertEqual(wheel_units("nope", None), 0)
+
+    def test_columns_stack_under_900(self) -> None:
+        self.assertEqual(STACK_COLUMNS_BELOW, 900)
+        self.assertTrue(columns_stacked(720))
+        self.assertTrue(columns_stacked(899))
+        self.assertFalse(columns_stacked(900))
+        self.assertFalse(columns_stacked(1080))
 
 
 class WindowSessionTest(unittest.TestCase):
@@ -95,6 +114,10 @@ class UiLayoutSourceTest(unittest.TestCase):
         self.assertIn("_bind_wrap_row", source)
         self.assertIn("wrap_positions", source)
         self.assertIn("save_window", source)
+        self.assertIn("self.voice_footer", source)
+        self.assertIn("_stack_columns", source)
+        self.assertIn("STACK_COLUMNS_BELOW", source)
+        self.assertIn("wheel_units", source)
         self.assertIn("minsize(720, 560)", source)
         self.assertIn('geometry("1200x800")', source)
         build = source.split("def _build(self)")[1].split("def _build_left")[0]
@@ -144,6 +167,11 @@ class UiLayoutLiveTest(unittest.TestCase):
             self.assertLess(stop_top, canvas_top)
             self.assertLess(stop_top, win_bottom)
             self.assertEqual(str(app.stop_talk_btn.cget("text")), "STOP TALKING")
+            footer_top = int(app.voice_footer.winfo_rooty())
+            footer_bottom = footer_top + int(app.voice_footer.winfo_height())
+            self.assertGreaterEqual(footer_top, win_top)
+            self.assertLessEqual(footer_bottom, win_bottom + 8)
+            self.assertGreaterEqual(footer_top, int(app.page_canvas.winfo_rooty()))
             pos, _height = wrap_positions([200, 200, 200], 360, gap=8, row_height=40)
             self.assertEqual(pos[2][1], 40)
         finally:

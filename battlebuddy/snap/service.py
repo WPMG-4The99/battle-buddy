@@ -91,7 +91,11 @@ class SnapAsk:
     def start_hotkey(self) -> None:
         if self._listener is not None or self._closed:
             return
-        listener = HotkeyListener(load_snap_hotkey(), self._on_hotkey)
+        listener = HotkeyListener(
+            load_snap_hotkey(),
+            self._on_hotkey,
+            name="battlebuddy-snap-hotkey",
+        )
         self._listener = listener
         error = listener.start()
         if error:
