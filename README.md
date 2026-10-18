@@ -56,7 +56,11 @@ Windows OCR is the default. `winsdk` is used when that package imports. When it 
 
 ## Snap & Ask
 
-**Ctrl+2** grabs the monitor under the pointer. Local OCR, same path as Read This, then a spoken summary of that screen plus this game's notes and databank. A follow-up box says **Ask about this screen…** with focus in the field. Enter submits. Empty Enter describes the screen again and speaks it. If OCR, the brain, or the network fails, Battle Buddy speaks a short error instead of going silent. Failures land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`. **SNAP** does the full monitor under the pointer. **SNAP BOX** dims every connected monitor and drags a region first, including across a boundary. Esc, **Ctrl+3**, or **STOP TALKING** stops speech and cancels an open SNAP BOX.
+**Ctrl+2** dims every connected monitor. Drag a box. Release. Battle Buddy OCRs that region, says **Go ahead**, and listens. Status shows **Listening…**. Speak a question. Silence, **Ctrl+2**, or Enter ends the listen. It answers from the snapped text plus this game's notes and databank, then speaks the answer. It does not talk before you ask.
+
+If it hears nothing: **Didn't catch that**, then a typed box with focus. If the mic is off: **Mic is off. Type it.** and the same box. Enter submits a typed question.
+
+**SNAP** grabs the full monitor under the pointer, then the same listen → answer loop. **SNAP BOX** is the same drag-box path as Ctrl+2. Esc or **Ctrl+3** cancels the overlay, the listen, or speech. Failures are spoken and land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`.
 
 Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
 

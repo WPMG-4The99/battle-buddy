@@ -205,8 +205,13 @@ class AnswerTest(unittest.TestCase):
         self.assertNotIn("XAI_API_KEY", source)
         snap_src = Path(snap_service.__file__).read_text(encoding="utf-8")
         self.assertIn("Ask about this screen…", snap_src)
-        self.assertIn("Empty Enter describes the screen", snap_src)
+        self.assertIn("Listening…", snap_src)
+        self.assertIn("Go ahead", snap_src)
+        self.assertIn("Didn't catch that", snap_src)
+        self.assertIn("def _prompt_question", snap_src)
+        self.assertIn("self.snap_box()", snap_src)
         self.assertIn("def _fail", snap_src)
+        self.assertNotIn("Empty Enter describes the screen", snap_src)
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8"
         )
@@ -214,7 +219,9 @@ class AnswerTest(unittest.TestCase):
         self.assertIn("every connected monitor", readme)
         self.assertIn("monitor under the pointer", readme)
         self.assertIn("battlebuddy.log", readme)
-        self.assertIn("Ask about this screen", readme)
+        self.assertIn("Go ahead", readme)
+        self.assertIn("Listening", readme)
+        self.assertIn("Didn't catch that", readme)
 
     def test_grok_exception_falls_back_to_the_pack(self) -> None:
         def _chat(*_args: object, **_kwargs: object) -> str:
@@ -257,14 +264,97 @@ class SnapFailSurfaceTest(unittest.TestCase):
         else:
             os.environ["BATTLEBUDDY_HOME"] = self._old_home
 
-    def test_empty_followup_summarizes_the_screen(self) -> None:
-        self.assertIn("Summarize", DEFAULT_QUESTION)
-        snap = SnapAsk(lambda _text: None, lambda: None)
+    def test_empty_followup_does_not_auto_summarize(self) -> None:
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: None)
         snap._last_ocr = "The colony has grown."
         seen: list[tuple[object, ...]] = []
         snap._answer_worker = lambda *args, **_kwargs: seen.append(args)  # type: ignore[method-assign]
         snap.ask_followup("")
-        self.assertEqual(seen[0][2], DEFAULT_QUESTION)
+        self.assertEqual(seen, [])
+        self.assertTrue(any("Type a question" in line for line in shown))
+
+    def test_ocr_then_listen_then_answer(self) -> None:
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: "Stellaris")
+        seen: list[tuple[object, ...]] = []
+        snap._answer_worker = lambda *args, **_kwargs: seen.append(args)  # type: ignore[method-assign]
+        with patch.object(snap_service, "stt_available", return_value=True), patch.object(
+            snap_service, "listen_once", return_value="what is this event"
+        ), patch.object(snap_service, "recognize", return_value="The colony has grown."), patch.object(
+            snap_service, "shrink_for_ocr", side_effect=lambda image, **_k: image
+        ), patch.object(
+            snap_service,
+            "speak",
+            side_effect=lambda phrase, **_k: True,
+        ):
+            snap._read_image("frame", token=0)
+        self.assertEqual(seen[0][2], "what is this event")
+        self.assertTrue(any("Listening" in line for line in shown))
+
+    def test_no_speech_falls_back_to_typed_box(self) -> None:
+        spoken: list[str] = []
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: None)
+        with patch.object(snap_service, "stt_available", return_value=True), patch.object(
+            snap_service, "listen_once", return_value=None
+        ), patch.object(snap_service, "recognize", return_value="The colony has grown."), patch.object(
+            snap_service, "shrink_for_ocr", side_effect=lambda image, **_k: image
+        ), patch.object(
+            snap_service,
+            "speak",
+            side_effect=lambda phrase, **_k: spoken.append(phrase) or True,
+        ):
+            snap._read_image("frame", token=0)
+        self.assertEqual(spoken[0], "Go ahead")
+        self.assertTrue(any("Didn't catch that" in line for line in shown))
+        self.assertTrue(any(line == "Didn't catch that" for line in spoken))
+
+    def test_stt_off_falls_back_to_typed_box(self) -> None:
+        spoken: list[str] = []
+        shown: list[str] = []
+        snap = SnapAsk(shown.append, lambda: None)
+        seen: list[tuple[object, ...]] = []
+        snap._answer_worker = lambda *args, **_kwargs: seen.append(args)  # type: ignore[method-assign]
+        with patch.object(snap_service, "stt_available", return_value=False), patch.object(
+            snap_service, "recognize", return_value="The colony has grown."
+        ), patch.object(
+            snap_service, "shrink_for_ocr", side_effect=lambda image, **_k: image
+        ), patch.object(
+            snap_service,
+            "speak",
+            side_effect=lambda phrase, **_k: spoken.append(phrase) or True,
+        ):
+            snap._read_image("frame", token=0)
+        self.assertEqual(seen, [])
+        self.assertTrue(any("Mic is off" in line for line in shown))
+        self.assertTrue(any("Mic is off" in line for line in spoken))
+
+    def test_hotkey_starts_box_or_ends_listen(self) -> None:
+        snap = SnapAsk(lambda _text: None, lambda: None)
+        boxes: list[str] = []
+        snap.snap_box = lambda: boxes.append("box")  # type: ignore[method-assign]
+        snap._hotkey_main()
+        self.assertEqual(boxes, ["box"])
+        snap._listening = True
+        snap._hotkey_main()
+        self.assertTrue(snap._listen_stop.is_set())
+        self.assertEqual(boxes, ["box"])
+
+        class FakeOverlay:
+            def __init__(self) -> None:
+                self.cancelled = 0
+
+            def cancel(self) -> None:
+                self.cancelled += 1
+
+        overlay = FakeOverlay()
+        snap._listening = False
+        snap._listen_stop.clear()
+        snap._overlay = overlay  # type: ignore[assignment]
+        snap._hotkey_main()
+        self.assertEqual(overlay.cancelled, 1)
+        self.assertEqual(boxes, ["box"])
 
     def test_empty_ocr_speaks_and_shows_an_error(self) -> None:
         spoken: list[str] = []
