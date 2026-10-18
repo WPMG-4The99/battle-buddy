@@ -11,7 +11,12 @@ from battlebuddy.memory.catalog import KnowledgeCatalog
 from battlebuddy.memory.store import default_home
 from battlebuddy.readthis.capture import ReadError, capture_region
 from battlebuddy.readthis.clean import clean_ocr_text
-from battlebuddy.readthis.listen import HotkeyListener, arm_escape, disarm_escape
+from battlebuddy.readthis.listen import (
+    SNAP_HOTKEY_ID,
+    HotkeyListener,
+    arm_escape,
+    disarm_escape,
+)
 from battlebuddy.readthis.ocr import recognize
 from battlebuddy.readthis.overlay import RegionOverlay
 from battlebuddy.readthis.region import Rect
@@ -95,6 +100,9 @@ class SnapAsk:
             load_snap_hotkey(),
             self._on_hotkey,
             name="battlebuddy-snap-hotkey",
+            taken_hint="BATTLEBUDDY_SNAP_HOTKEY or snap_hotkey in session.json",
+            need_windows="Global hotkey needs Windows. Use the SNAP button.",
+            hotkey_id=SNAP_HOTKEY_ID,
         )
         self._listener = listener
         error = listener.start()
@@ -149,9 +157,10 @@ class SnapAsk:
             self._status("Could not open the snap box.")
 
     def stop_talking(self) -> None:
-        """Cut current speech. Idle calls are safe. Does not cancel a drag."""
+        """Cut current speech and cancel an active SNAP BOX. Idle calls are safe."""
         if self._closed:
             return
+        self._cancel_overlay()
         self._cancel()
         self._status("Stopped.")
 
@@ -422,6 +431,20 @@ class SnapAsk:
         except Exception:
             return None
         return name or None
+
+    def _cancel_overlay(self) -> None:
+        overlay = self._overlay
+        if overlay is None:
+            return
+        try:
+            overlay.cancel()
+        except Exception:
+            try:
+                overlay.close()
+            except Exception:
+                pass
+        if self._overlay is overlay:
+            self._overlay = None
 
     def _cancel(self) -> None:
         self._token += 1

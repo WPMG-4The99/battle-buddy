@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from battlebuddy.readthis.hotkey import MOD_CONTROL, MOD_SHIFT, parse_hotkey
+from battlebuddy.readthis.hotkey import MOD_CONTROL, parse_hotkey
 from battlebuddy.readthis.region import Rect
 from battlebuddy.session.tier import load_tier, save_tier
 from battlebuddy.snap.answer import answer_snap, grok_user_content, uses_image
@@ -39,10 +39,11 @@ class _FakeImage:
 
 
 class HotkeyAndSizeTest(unittest.TestCase):
-    def test_default_hotkey_is_ctrl_shift_f10(self) -> None:
+    def test_default_hotkey_is_ctrl_2(self) -> None:
+        self.assertEqual(DEFAULT_SNAP_HOTKEY, "ctrl+2")
         mods, vk = parse_hotkey(DEFAULT_SNAP_HOTKEY)
-        self.assertEqual(mods, MOD_CONTROL | MOD_SHIFT)
-        self.assertEqual(vk, 0x79)
+        self.assertEqual(mods, MOD_CONTROL)
+        self.assertEqual(vk, ord("2"))
         self.assertNotIn("alt", DEFAULT_SNAP_HOTKEY.split("+"))
 
     def test_full_hd_frame_is_capped_before_ocr(self) -> None:

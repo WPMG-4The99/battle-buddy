@@ -14,6 +14,9 @@ WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
 WH_KEYBOARD_LL = 13
 _HOTKEY_ID = 0xB0B1
+READ_HOTKEY_ID = 0xB0B1
+SNAP_HOTKEY_ID = 0xB0B2
+STOP_HOTKEY_ID = 0xB0B3
 
 _escape_armed = threading.Event()
 _escape_handler: Callable[[], None] | None = None
@@ -64,10 +67,16 @@ class HotkeyListener:
         on_fire: Callable[[], None],
         *,
         name: str = "battlebuddy-read-hotkey",
+        taken_hint: str = "BATTLEBUDDY_READ_HOTKEY or read_hotkey in session.json",
+        need_windows: str = "Global hotkey needs Windows. Use the READ THIS button.",
+        hotkey_id: int = READ_HOTKEY_ID,
     ) -> None:
         self.spec = spec
         self._on_fire = on_fire
         self._name = name
+        self._taken_hint = taken_hint
+        self._need_windows = need_windows
+        self._hotkey_id = int(hotkey_id)
         self.error: str | None = None
         self._stop = threading.Event()
         self._ready = threading.Event()
@@ -80,7 +89,7 @@ class HotkeyListener:
     def start(self) -> str | None:
         """Return an error string when the global key cannot be claimed."""
         if sys.platform != "win32":
-            self.error = "Global hotkey needs Windows. Use the READ THIS button."
+            self.error = self._need_windows
             self._ready.set()
             return self.error
         self._thread = threading.Thread(target=self._loop, name=self._name, daemon=True)
@@ -142,20 +151,17 @@ class HotkeyListener:
             ]
             user32.RegisterHotKey.restype = wintypes.BOOL  # type: ignore[attr-defined]
             registered = bool(
-                user32.RegisterHotKey(None, _HOTKEY_ID, mask | MOD_NOREPEAT, vk)  # type: ignore[attr-defined]
+                user32.RegisterHotKey(None, self._hotkey_id, mask | MOD_NOREPEAT, vk)  # type: ignore[attr-defined]
             )
             if not registered:
                 shown = display_hotkey(self.spec)
-                self.error = (
-                    f"{shown} is already taken. Set BATTLEBUDDY_READ_HOTKEY "
-                    "or read_hotkey in session.json."
-                )
+                self.error = f"{shown} is already taken. Set {self._taken_hint}."
             self._ready.set()
             self._pump(user32, hooked_only=False)
         finally:
             if registered:
                 try:
-                    user32.UnregisterHotKey(None, _HOTKEY_ID)  # type: ignore[attr-defined]
+                    user32.UnregisterHotKey(None, self._hotkey_id)  # type: ignore[attr-defined]
                 except Exception:
                     pass
             self._remove_hook(user32)
@@ -180,7 +186,7 @@ class HotkeyListener:
             if (
                 not hooked_only
                 and int(msg.message) == WM_HOTKEY
-                and int(msg.wParam) == _HOTKEY_ID
+                and int(msg.wParam) == self._hotkey_id
             ):
                 self._emit()
 
