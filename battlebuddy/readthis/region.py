@@ -36,12 +36,49 @@ def normalize_drag(x0: int, y0: int, x1: int, y1: int) -> Rect:
 
 
 def clamp_rect(rect: Rect, bounds: Rect) -> Rect:
-    """Keep the drag inside one monitor. Empty if it misses the monitor."""
+    """Keep the drag inside bounds. Empty if it misses the box."""
     x1 = max(rect.left, bounds.left)
     y1 = max(rect.top, bounds.top)
     x2 = min(rect.left + rect.width, bounds.left + bounds.width)
     y2 = min(rect.top + rect.height, bounds.top + bounds.height)
     return Rect(x1, y1, max(0, x2 - x1), max(0, y2 - y1))
+
+
+def contains_point(rect: Rect, x: int, y: int) -> bool:
+    """True when (x, y) sits inside rect. Right and bottom edges are exclusive."""
+    return (
+        rect.left <= int(x) < rect.left + rect.width
+        and rect.top <= int(y) < rect.top + rect.height
+    )
+
+
+def intersect_rect(a: Rect, b: Rect) -> Rect | None:
+    """Overlap of two rectangles, or None when they miss."""
+    hit = clamp_rect(a, b)
+    if hit.width <= 0 or hit.height <= 0:
+        return None
+    return hit
+
+
+def union_rects(rects: list[Rect]) -> Rect:
+    """Bounding box of every monitor. Empty list is a 1920x1080 primary."""
+    if not rects:
+        return Rect(0, 0, 1920, 1080)
+    left = min(item.left for item in rects)
+    top = min(item.top for item in rects)
+    right = max(item.left + item.width for item in rects)
+    bottom = max(item.top + item.height for item in rects)
+    return Rect(left, top, right - left, bottom - top)
+
+
+def local_rect(rect: Rect, monitor: Rect) -> tuple[int, int, int, int] | None:
+    """Map a virtual-desktop rect onto one monitor overlay. Canvas pixels."""
+    hit = intersect_rect(rect, monitor)
+    if hit is None:
+        return None
+    left = hit.left - monitor.left
+    top = hit.top - monitor.top
+    return (left, top, left + hit.width, top + hit.height)
 
 
 def selection_rect(
