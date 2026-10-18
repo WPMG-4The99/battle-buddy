@@ -44,7 +44,7 @@ from battlebuddy.ui.layout import (
     wrap_positions,
 )
 from battlebuddy.harvest.locate import load_harvest
-from battlebuddy.xai.loop import answer_ask, reason_utterance
+from battlebuddy.xai.loop import answer_ask, api_key, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
@@ -218,7 +218,12 @@ def _voice_footer() -> str:
 
 def run_ui() -> int:
     from battlebuddy.readthis.screen import enable_dpi_awareness
+    from battlebuddy.session.log import report, setup_logging
 
+    try:
+        setup_logging()
+    except Exception:
+        pass
     enable_dpi_awareness()
     try:
         import tkinter as tk
@@ -226,8 +231,12 @@ def run_ui() -> int:
         print("No tkinter on this box. Typed path still works:")
         print("  python -m battlebuddy remind me in 1 minute to check food stores")
         return 1
-    app = BattleBuddyApp(tk)
-    app.run()
+    try:
+        app = BattleBuddyApp(tk)
+        app.run()
+    except Exception as exc:
+        report("UI crashed", exc)
+        raise
     return 0
 
 
@@ -1902,7 +1911,7 @@ class BattleBuddyApp:
         try:
             found = miss_check(
                 unsolicited=True,
-                key=(os.environ.get("XAI_API_KEY") or "").strip() or None,
+                key=api_key(),
             )
         except Exception:
             found = None
