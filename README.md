@@ -42,7 +42,7 @@ Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m
 
 **Ctrl+Alt+R** dims every connected monitor. Drag a box over on-screen text on any screen, including across a boundary (a Stellaris event, a quest, a tooltip). Release. Battle Buddy reads it with the same local TTS. No cloud. No account.
 
-Esc cancels the box on all monitors at once. The same hotkey, Esc while it is speaking, or **STOP TALKING** (next to REPEAT LAST / ASK) kills the voice. Safe to press when nothing is speaking. **READ THIS** sits next to **SCAN**. **READ AGAIN** (next to ASK) grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again.
+Esc cancels the box on all monitors at once. The same hotkey, Esc while it is speaking, or **STOP TALKING** (always on the top bar, even in a short window) kills the voice. Safe to press when nothing is speaking. **READ THIS**, **READ AGAIN**, and **REPEAT LAST** sit together and wrap on a narrow column. **SCAN**, **SNAP**, and **SNAP BOX** wrap as their own row. **READ AGAIN** grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again. The main page scrolls when the window is shorter than the controls. Last size and position land in `session.json`.
 
 Change the hotkey with `BATTLEBUDDY_READ_HOTKEY=ctrl+shift+r`, or add `"read_hotkey": "ctrl+shift+r"` in `session.json` under the Battle Buddy home folder. Other session keys stay put.
 

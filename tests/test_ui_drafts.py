@@ -45,7 +45,7 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
         self.assertIn('geometry("1200x800")', source)
-        self.assertIn("minsize(1000, 640)", source)
+        self.assertIn("minsize(720, 560)", source)
         self.assertNotIn('geometry("760x900")', source)
         self.assertNotIn('geometry("760x1080")', source)
         self.assertNotIn("760x1080", source)
@@ -150,7 +150,7 @@ class DraftBoxesLiveTest(unittest.TestCase):
                 self.assertLess(y, win_bottom, name)
             geo = str(app.root.geometry()).split("+", 1)[0]
             width, height = (int(part) for part in geo.split("x"))
-            self.assertGreaterEqual(width, 1000)
+            self.assertGreaterEqual(width, 720)
             self.assertLessEqual(height, 800)
             app.entry.insert(0, "draft reminder")
             app.ask_entry.insert(0, "where is food")
