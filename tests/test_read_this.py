@@ -13,9 +13,11 @@ from battlebuddy.readthis.clean import clean_ocr_text, join_ocr_lines, should_br
 from battlebuddy.readthis.config import (
     load_hotkey,
     load_region,
+    load_stop_hotkey,
     load_text,
     save_hotkey,
     save_region,
+    save_stop_hotkey,
     save_text,
     saves_reads,
 )
@@ -24,6 +26,7 @@ from battlebuddy.readthis.hotkey import (
     MOD_CONTROL,
     MOD_SHIFT,
     DEFAULT_HOTKEY,
+    DEFAULT_STOP_HOTKEY,
     display_hotkey,
     parse_hotkey,
 )
@@ -224,7 +227,23 @@ class MultiMonitorMapTest(unittest.TestCase):
 
 
 class HotkeyParseTest(unittest.TestCase):
-    def test_default_ctrl_alt_r(self) -> None:
+    def test_default_ctrl_1(self) -> None:
+        self.assertEqual(DEFAULT_HOTKEY, "ctrl+1")
+        self.assertEqual(DEFAULT_STOP_HOTKEY, "ctrl+3")
+        mods, vk = parse_hotkey(DEFAULT_HOTKEY)
+        self.assertEqual(mods, MOD_CONTROL)
+        self.assertEqual(vk, ord("1"))
+        self.assertEqual(display_hotkey("ctrl + 1"), "Ctrl+1")
+
+    def test_number_row_digits(self) -> None:
+        for digit in "123":
+            mods, vk = parse_hotkey("ctrl+" + digit)
+            self.assertEqual(mods, MOD_CONTROL)
+            self.assertEqual(vk, ord(digit))
+        self.assertEqual(display_hotkey("ctrl+2"), "Ctrl+2")
+        self.assertEqual(display_hotkey("ctrl+3"), "Ctrl+3")
+
+    def test_ctrl_alt_r_still_parses(self) -> None:
         mods, vk = parse_hotkey("ctrl+alt+r")
         self.assertEqual(mods, MOD_CONTROL | MOD_ALT)
         self.assertEqual(vk, ord("R"))
@@ -270,10 +289,27 @@ class ReadConfigTest(unittest.TestCase):
 
     def test_missing_session_uses_default_hotkey(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch.dict(os.environ, {"BATTLEBUDDY_READ_HOTKEY": ""}):
+            with patch.dict(
+                os.environ,
+                {"BATTLEBUDDY_READ_HOTKEY": "", "BATTLEBUDDY_STOP_HOTKEY": ""},
+            ):
                 self.assertEqual(load_hotkey(Path(tmp)), DEFAULT_HOTKEY)
+                self.assertEqual(load_stop_hotkey(Path(tmp)), DEFAULT_STOP_HOTKEY)
                 self.assertIsNone(load_region(Path(tmp)))
                 self.assertEqual(load_text(Path(tmp)), "")
+
+    def test_stop_hotkey_env_and_session(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict(os.environ, {"BATTLEBUDDY_STOP_HOTKEY": ""}):
+                save_hotkey("ctrl+1", home)
+                save_stop_hotkey("Ctrl+Shift+F9", home)
+                self.assertEqual(load_hotkey(home), "ctrl+1")
+                self.assertEqual(load_stop_hotkey(home), "ctrl+shift+f9")
+            with patch.dict(os.environ, {"BATTLEBUDDY_STOP_HOTKEY": "alt+f8"}):
+                self.assertEqual(load_stop_hotkey(home), "alt+f8")
+            with patch.dict(os.environ, {"BATTLEBUDDY_STOP_HOTKEY": "nope"}):
+                self.assertEqual(load_stop_hotkey(home), "ctrl+shift+f9")
 
     def test_save_reads_flag(self) -> None:
         with patch.dict(os.environ, {"BATTLEBUDDY_SAVE_READS": "1"}):
@@ -317,6 +353,37 @@ class CaptureAndSpeechContractTest(unittest.TestCase):
         stop_speaking()
         self.assertFalse(is_speaking())
 
+    def test_stop_talking_cancels_an_open_overlay(self) -> None:
+        from battlebuddy.readthis.service import ReadAloud
+        from battlebuddy.snap.service import SnapAsk
+
+        class FakeOverlay:
+            def __init__(self) -> None:
+                self.cancelled = 0
+
+            def cancel(self) -> None:
+                self.cancelled += 1
+
+            def close(self) -> None:
+                return
+
+        seen: list[str] = []
+        reader = ReadAloud(seen.append, lambda: None)
+        overlay = FakeOverlay()
+        reader._overlay = overlay  # type: ignore[assignment]
+        reader.stop_talking()
+        self.assertEqual(overlay.cancelled, 1)
+        self.assertIsNone(reader._overlay)
+        self.assertIn("Stopped.", seen)
+        snap_seen: list[str] = []
+        snap = SnapAsk(snap_seen.append, lambda: None)
+        box = FakeOverlay()
+        snap._overlay = box  # type: ignore[assignment]
+        snap.stop_talking()
+        self.assertEqual(box.cancelled, 1)
+        self.assertIsNone(snap._overlay)
+        self.assertIn("Stopped.", snap_seen)
+
     def test_ui_exposes_read_buttons(self) -> None:
         source = (
             Path(__file__).resolve().parents[1] / "battlebuddy" / "ui" / "app.py"
@@ -326,11 +393,18 @@ class CaptureAndSpeechContractTest(unittest.TestCase):
         self.assertIn('text="REPEAT LAST"', source)
         self.assertIn('text="STOP TALKING"', source)
         self.assertIn("self._stop_talking", source)
+        self.assertIn("self._start_stop_hotkey", source)
+        self.assertIn("battlebuddy-stop-hotkey", source)
+        self.assertIn("BATTLEBUDDY_STOP_HOTKEY", source)
+        self.assertIn("Ctrl+1", source)
         self.assertIn('text="SCAN"', source)
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("Ctrl+Alt+R", readme)
+        self.assertIn("Ctrl+1", readme)
+        self.assertIn("Ctrl+2", readme)
+        self.assertIn("Ctrl+3", readme)
+        self.assertIn("BATTLEBUDDY_STOP_HOTKEY", readme)
         self.assertIn("every connected monitor", readme)
         self.assertIn("STOP TALKING", readme)
         self.assertIn("requirements-readthis.txt", readme)

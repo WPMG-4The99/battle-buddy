@@ -9,14 +9,14 @@ from pathlib import Path
 from battlebuddy.readthis.hotkey import display_hotkey, parse_hotkey
 from battlebuddy.session.tier import session_path
 
-DEFAULT_SNAP_HOTKEY = "ctrl+shift+f10"
+DEFAULT_SNAP_HOTKEY = "ctrl+2"
 _HOTKEY = "snap_hotkey"
 _SEND = "snap_send_image"
 _ON = {"1", "true", "yes", "on"}
 
 
 def load_snap_hotkey(home: Path | None = None) -> str:
-    """Env wins, then session.json, then Ctrl+Shift+F10. Stellaris eats Alt."""
+    """Env wins, then session.json, then Ctrl+2. Stellaris eats Alt."""
     env = (os.environ.get("BATTLEBUDDY_SNAP_HOTKEY") or "").strip()
     if env and _valid(env):
         return env

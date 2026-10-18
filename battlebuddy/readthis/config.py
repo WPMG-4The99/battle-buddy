@@ -6,11 +6,17 @@ import json
 import os
 from pathlib import Path
 
-from battlebuddy.readthis.hotkey import DEFAULT_HOTKEY, display_hotkey, parse_hotkey
+from battlebuddy.readthis.hotkey import (
+    DEFAULT_HOTKEY,
+    DEFAULT_STOP_HOTKEY,
+    display_hotkey,
+    parse_hotkey,
+)
 from battlebuddy.readthis.region import MIN_REGION, Rect
 from battlebuddy.session.tier import session_path
 
 _HOTKEY = "read_hotkey"
+_STOP = "stop_hotkey"
 _REGION = "read_region"
 _TEXT = "read_text"
 _TEXT_CAP = 8000
@@ -23,7 +29,7 @@ def saves_reads() -> bool:
 
 
 def load_hotkey(home: Path | None = None) -> str:
-    """Env wins, then session.json, then Ctrl+Alt+R. Bad specs fall back."""
+    """Env wins, then session.json, then Ctrl+1. Bad specs fall back."""
     env = (os.environ.get("BATTLEBUDDY_READ_HOTKEY") or "").strip()
     if env and _valid(env):
         return env
@@ -44,6 +50,30 @@ def save_hotkey(spec: str, home: Path | None = None) -> str:
         part for part in spec.replace(" ", "").lower().split("+") if part
     )
     _update(home, **{_HOTKEY: clean})
+    return clean
+
+
+def load_stop_hotkey(home: Path | None = None) -> str:
+    """Env wins, then session.json, then Ctrl+3. Bad specs fall back."""
+    env = (os.environ.get("BATTLEBUDDY_STOP_HOTKEY") or "").strip()
+    if env and _valid(env):
+        return env
+    saved = str(_blob(home).get(_STOP) or "").strip()
+    if saved and _valid(saved):
+        return saved
+    return DEFAULT_STOP_HOTKEY
+
+
+def stop_hotkey_label(home: Path | None = None) -> str:
+    return display_hotkey(load_stop_hotkey(home))
+
+
+def save_stop_hotkey(spec: str, home: Path | None = None) -> str:
+    parse_hotkey(spec)
+    clean = "+".join(
+        part for part in spec.replace(" ", "").lower().split("+") if part
+    )
+    _update(home, **{_STOP: clean})
     return clean
 
 

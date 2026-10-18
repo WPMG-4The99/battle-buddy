@@ -149,6 +149,12 @@ class HotkeySourceTest(unittest.TestCase):
         snap = Path(snap_service.__file__).read_text(encoding="utf-8")
         self.assertIn("HotkeyListener", snap)
         self.assertIn("battlebuddy-snap-hotkey", snap)
+        self.assertIn("SNAP_HOTKEY_ID", snap)
+        app = (
+            Path(__file__).resolve().parents[1] / "battlebuddy" / "ui" / "app.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("battlebuddy-stop-hotkey", app)
+        self.assertIn("STOP_HOTKEY_ID", app)
         screen = (
             Path(__file__).resolve().parents[1]
             / "battlebuddy"

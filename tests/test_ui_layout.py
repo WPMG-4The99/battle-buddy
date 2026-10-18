@@ -115,6 +115,7 @@ class UiLayoutSourceTest(unittest.TestCase):
         self.assertIn("wrap_positions", source)
         self.assertIn("save_window", source)
         self.assertIn("self.voice_footer", source)
+        self.assertIn("self.stop_hotkey_line", source)
         self.assertIn("_stack_columns", source)
         self.assertIn("STACK_COLUMNS_BELOW", source)
         self.assertIn("wheel_units", source)

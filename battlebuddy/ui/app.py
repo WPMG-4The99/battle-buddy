@@ -50,6 +50,8 @@ from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
+from battlebuddy.readthis.config import load_stop_hotkey, stop_hotkey_label
+from battlebuddy.readthis.listen import STOP_HOTKEY_ID, HotkeyListener
 from battlebuddy.readthis.service import ReadAloud
 from battlebuddy.snap.service import SnapAsk
 from battlebuddy.voice.stt import listen_once, stt_available
@@ -262,6 +264,7 @@ class BattleBuddyApp:
 
         self._wrap_busy: set[int] = set()
         self._columns_stacked: bool | None = None
+        self._stop_listener: HotkeyListener | None = None
         self.root.minsize(720, 560)
         self.root.geometry("1200x800")
         self._restore_window()
@@ -281,6 +284,7 @@ class BattleBuddyApp:
         try:
             self.reader.start_hotkey()
             self.snap.start_hotkey()
+            self._start_stop_hotkey()
         except Exception:
             pass
         self.root.mainloop()
@@ -381,6 +385,15 @@ class BattleBuddyApp:
             command=self._stop_talking,
         )
         self.stop_talk_btn.pack(side="left", ipadx=12, ipady=6)
+        self.stop_hotkey_line = tk.Label(
+            bar,
+            text=stop_hotkey_label(),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+        )
+        self.stop_hotkey_line.pack(side="left", padx=(12, 0))
 
     def _build_left(self, parent: object) -> None:
         """Reminders stay on the left. ASK output never lands here."""
@@ -479,7 +492,7 @@ class BattleBuddyApp:
         self.seen_line.pack(fill="x", pady=(4, 8))
         self.read_line = tk.Label(
             parent,
-            text="Read This · Ctrl+Alt+R",
+            text="Read This · Ctrl+1",
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
@@ -1828,8 +1841,33 @@ class BattleBuddyApp:
     def _repeat_last(self) -> None:
         self.reader.repeat_last()
 
+    def _start_stop_hotkey(self) -> None:
+        if self._stop_listener is not None:
+            return
+        listener = HotkeyListener(
+            load_stop_hotkey(),
+            self._on_stop_hotkey,
+            name="battlebuddy-stop-hotkey",
+            taken_hint="BATTLEBUDDY_STOP_HOTKEY or stop_hotkey in session.json",
+            need_windows="Global hotkey needs Windows. Use the STOP TALKING button.",
+            hotkey_id=STOP_HOTKEY_ID,
+        )
+        self._stop_listener = listener
+        error = listener.start()
+        if error:
+            try:
+                self._read_status(error)
+            except Exception:
+                pass
+
+    def _on_stop_hotkey(self) -> None:
+        try:
+            self.root.after(0, self._stop_talking)
+        except Exception:
+            self._stop_talking()
+
     def _stop_talking(self) -> None:
-        """Kill any local TTS. Safe when nothing is speaking."""
+        """Kill any local TTS and undim an active box. Safe when idle."""
         try:
             self.reader.stop_talking()
         except Exception:
@@ -2127,6 +2165,13 @@ class BattleBuddyApp:
             self.snap.shutdown()
         except Exception:
             pass
+        listener = self._stop_listener
+        self._stop_listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                pass
         try:
             stop_bundled_server()
         except Exception:
