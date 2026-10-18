@@ -12,7 +12,7 @@ _SYSTEM = (
     "Answer from the context only. One or two sentences. Do not invent. "
     "If the context does not say, reply exactly: Can't find that in the snap."
 )
-DEFAULT_QUESTION = "What does this event do?"
+DEFAULT_QUESTION = "Summarize what is on this screen."
 
 
 def grok_user_content(
@@ -66,23 +66,37 @@ def answer_snap(
         text = (raw or "").strip()
         if text:
             return text
-        return grounded
+        return grounded or "Snap could not answer."
     if chosen == BRAIN_LOCAL and local_fn is not None:
         try:
             raw = local_fn(question, pack)
-        except Exception:
+        except Exception as exc:
+            from battlebuddy.session.log import report
+
+            report("snap local brain failed", exc)
             raw = None
         text = (raw or "").strip()
         if text and _sits_on_pack(text, pack):
             return text
-    return grounded
+    return grounded or "Snap could not answer."
 
 
 def _call(chat_fn: Callable[..., str | None], messages: list[dict[str, object]], key: str) -> str | None:
     try:
         return chat_fn(messages, key=key)
     except TypeError:
-        return chat_fn(messages)
+        try:
+            return chat_fn(messages)
+        except Exception as exc:
+            from battlebuddy.session.log import report
+
+            report("snap grok call failed", exc)
+            return None
+    except Exception as exc:
+        from battlebuddy.session.log import report
+
+        report("snap grok call failed", exc)
+        return None
 
 
 def _sits_on_pack(answer: str, pack: str) -> bool:

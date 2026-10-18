@@ -171,3 +171,84 @@ def save_brain(brain: str, home: Path | None = None) -> str:
 
 def set_brain_message(brain: str) -> str:
     return f"Brain · {brain}. Next NEXT uses this."
+
+
+def parse_window(raw: object) -> dict[str, int] | None:
+    """Accept {width, height} plus optional x/y. Reject junk. Keep negative origin."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        width = int(raw["width"])
+        height = int(raw["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if width < 1 or height < 1:
+        return None
+    out = {"width": width, "height": height}
+    try:
+        out["x"] = int(raw["x"])
+        out["y"] = int(raw["y"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    return out
+
+
+def load_window(home: Path | None = None) -> dict[str, int] | None:
+    return parse_window(_session_blob(home).get("window"))
+
+
+def save_window(
+    width: int,
+    height: int,
+    x: int | None = None,
+    y: int | None = None,
+    home: Path | None = None,
+) -> None:
+    """Merge window size into session.json. Other keys stay put."""
+    blob = _session_blob(home)
+    win: dict[str, int] = {"width": int(width), "height": int(height)}
+    if x is not None and y is not None:
+        win["x"] = int(x)
+        win["y"] = int(y)
+    blob["window"] = win
+    _write_session(blob, home)
+
+
+def window_geometry(
+    win: dict[str, int] | None,
+    *,
+    default: str = "1200x800",
+    min_w: int = 720,
+    min_h: int = 560,
+) -> str:
+    """Tk geometry from a saved window blob. Floor at the UI min size."""
+    if not win:
+        return default
+    width = max(int(min_w), int(win["width"]))
+    height = max(int(min_h), int(win["height"]))
+    if "x" in win and "y" in win:
+        return f"{width}x{height}+{int(win['x'])}+{int(win['y'])}"
+    return f"{width}x{height}"
+
+
+_TK_GEO = re.compile(r"^(\d+)x(\d+)(?:([+-]-?\d+)([+-]-?\d+))?$")
+
+
+def parse_tk_geometry(spec: str) -> dict[str, int] | None:
+    """Parse WxH or WxH±X±Y, including a negative virtual-desktop origin."""
+    match = _TK_GEO.match((spec or "").strip())
+    if match is None:
+        return None
+    out = {"width": int(match.group(1)), "height": int(match.group(2))}
+    if match.group(3) is not None and match.group(4) is not None:
+        out["x"] = _signed_int(match.group(3))
+        out["y"] = _signed_int(match.group(4))
+    return out
+
+
+def _signed_int(raw: str) -> int:
+    text = (raw or "").strip()
+    if text.startswith("+"):
+        text = text[1:]
+    return int(text)
+

@@ -17,7 +17,12 @@ from battlebuddy.readthis.config import (
     save_text,
     saves_reads,
 )
-from battlebuddy.readthis.listen import HotkeyListener, arm_escape, disarm_escape
+from battlebuddy.readthis.listen import (
+    READ_HOTKEY_ID,
+    HotkeyListener,
+    arm_escape,
+    disarm_escape,
+)
 from battlebuddy.readthis.ocr import recognize
 from battlebuddy.readthis.overlay import RegionOverlay
 from battlebuddy.readthis.region import Rect
@@ -63,7 +68,13 @@ class ReadAloud:
     def start_hotkey(self) -> None:
         if self._listener is not None or self._closed:
             return
-        listener = HotkeyListener(self._hotkey_spec(), self._on_hotkey)
+        listener = HotkeyListener(
+            self._hotkey_spec(),
+            self._on_hotkey,
+            name="battlebuddy-read-hotkey",
+            taken_hint="BATTLEBUDDY_READ_HOTKEY or read_hotkey in session.json",
+            hotkey_id=READ_HOTKEY_ID,
+        )
         self._listener = listener
         error = listener.start()
         if error:
@@ -82,7 +93,7 @@ class ReadAloud:
             listener.stop()
 
     def start_select(self) -> None:
-        """Dim the current monitor and wait for a drag."""
+        """Dim every connected monitor and wait for a drag."""
         if self._closed or self._tk is None or self._root is None:
             return
         self._cancel_work()
@@ -112,6 +123,15 @@ class ReadAloud:
             return
         self._cancel_work()
         self._begin_read(rect)
+
+    def stop_talking(self) -> None:
+        """Cut current speech and cancel an active drag. Idle calls are safe."""
+        if self._closed:
+            return
+        self._cancel_overlay()
+        self._cancel_work()
+        self._busy = False
+        self._status("Stopped.")
 
     def repeat_last(self) -> None:
         """Speak the last cleaned text again. No new grab."""
@@ -275,6 +295,20 @@ class ReadAloud:
             saved()
         except Exception:
             return
+
+    def _cancel_overlay(self) -> None:
+        overlay = self._overlay
+        if overlay is None:
+            return
+        try:
+            overlay.cancel()
+        except Exception:
+            try:
+                overlay.close()
+            except Exception:
+                pass
+        if self._overlay is overlay:
+            self._overlay = None
 
     def _cancel_work(self) -> None:
         self._token += 1

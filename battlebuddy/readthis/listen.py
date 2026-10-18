@@ -14,9 +14,13 @@ WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
 WH_KEYBOARD_LL = 13
 _HOTKEY_ID = 0xB0B1
+READ_HOTKEY_ID = 0xB0B1
+SNAP_HOTKEY_ID = 0xB0B2
+STOP_HOTKEY_ID = 0xB0B3
 
 _escape_armed = threading.Event()
 _escape_handler: Callable[[], None] | None = None
+_listen_user32 = None
 
 
 def arm_escape(handler: Callable[[], None]) -> None:
@@ -30,12 +34,49 @@ def disarm_escape() -> None:
     _escape_armed.clear()
 
 
+def win_user32() -> object:
+    """Own WinDLL so overlay/screen argtypes on windll.user32 cannot kill this loop."""
+    global _listen_user32
+    if _listen_user32 is None:
+        import ctypes
+
+        _listen_user32 = ctypes.WinDLL("user32", use_last_error=True)
+    return _listen_user32
+
+
+def bind_get_message(user32: object) -> None:
+    """Always ctypes.wintypes.MSG. Local MSG classes collide on a shared DLL."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32.GetMessageW.argtypes = [  # type: ignore[attr-defined]
+        ctypes.POINTER(wintypes.MSG),
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.UINT,
+    ]
+    user32.GetMessageW.restype = ctypes.c_int  # type: ignore[attr-defined]
+
+
 class HotkeyListener:
     """One thread. RegisterHotKey plus a low-level hook that only eats Esc mid-speech."""
 
-    def __init__(self, spec: str, on_fire: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        spec: str,
+        on_fire: Callable[[], None],
+        *,
+        name: str = "battlebuddy-read-hotkey",
+        taken_hint: str = "BATTLEBUDDY_READ_HOTKEY or read_hotkey in session.json",
+        need_windows: str = "Global hotkey needs Windows. Use the READ THIS button.",
+        hotkey_id: int = READ_HOTKEY_ID,
+    ) -> None:
         self.spec = spec
         self._on_fire = on_fire
+        self._name = name
+        self._taken_hint = taken_hint
+        self._need_windows = need_windows
+        self._hotkey_id = int(hotkey_id)
         self.error: str | None = None
         self._stop = threading.Event()
         self._ready = threading.Event()
@@ -43,14 +84,15 @@ class HotkeyListener:
         self._tid = 0
         self._hook = None
         self._callback = None
+        self._user32: object | None = None
 
     def start(self) -> str | None:
         """Return an error string when the global key cannot be claimed."""
         if sys.platform != "win32":
-            self.error = "Global hotkey needs Windows. Use the READ THIS button."
+            self.error = self._need_windows
             self._ready.set()
             return self.error
-        self._thread = threading.Thread(target=self._loop, name="battlebuddy-read-hotkey", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=self._name, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=2.0)
         return self.error
@@ -63,21 +105,32 @@ class HotkeyListener:
         import ctypes
         from ctypes import wintypes
 
-        user32 = ctypes.windll.user32
-        user32.PostThreadMessageW.argtypes = [
+        user32 = self._user32 or win_user32()
+        user32.PostThreadMessageW.argtypes = [  # type: ignore[attr-defined]
             wintypes.DWORD,
             wintypes.UINT,
             wintypes.WPARAM,
             wintypes.LPARAM,
         ]
-        user32.PostThreadMessageW(self._tid, WM_QUIT, 0, 0)
+        user32.PostThreadMessageW(self._tid, WM_QUIT, 0, 0)  # type: ignore[attr-defined]
 
     def _loop(self) -> None:
-        import ctypes
+        try:
+            self._run()
+        except Exception as exc:
+            sys.stderr.write(f"battlebuddy hotkey loop: {exc}\n")
+            if not self.error:
+                self.error = "Hotkey loop stopped. Use the READ THIS button."
+            self._ready.set()
+
+    def _run(self) -> None:
         from ctypes import wintypes
 
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
+        user32 = win_user32()
+        self._user32 = user32
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.GetCurrentThreadId.restype = wintypes.DWORD
         self._tid = int(kernel32.GetCurrentThreadId())
         self._install_hook(user32)
@@ -90,59 +143,51 @@ class HotkeyListener:
                 self._ready.set()
                 self._pump(user32, hooked_only=True)
                 return
-            user32.RegisterHotKey.argtypes = [
+            user32.RegisterHotKey.argtypes = [  # type: ignore[attr-defined]
                 wintypes.HWND,
                 ctypes.c_int,
                 wintypes.UINT,
                 wintypes.UINT,
             ]
-            user32.RegisterHotKey.restype = wintypes.BOOL
+            user32.RegisterHotKey.restype = wintypes.BOOL  # type: ignore[attr-defined]
             registered = bool(
-                user32.RegisterHotKey(None, _HOTKEY_ID, mask | MOD_NOREPEAT, vk)
+                user32.RegisterHotKey(None, self._hotkey_id, mask | MOD_NOREPEAT, vk)  # type: ignore[attr-defined]
             )
             if not registered:
                 shown = display_hotkey(self.spec)
-                self.error = (
-                    f"{shown} is already taken. Set BATTLEBUDDY_READ_HOTKEY "
-                    "or read_hotkey in session.json."
-                )
+                self.error = f"{shown} is already taken. Set {self._taken_hint}."
             self._ready.set()
             self._pump(user32, hooked_only=False)
         finally:
             if registered:
-                user32.UnregisterHotKey(None, _HOTKEY_ID)
+                try:
+                    user32.UnregisterHotKey(None, self._hotkey_id)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             self._remove_hook(user32)
 
     def _pump(self, user32: object, *, hooked_only: bool) -> None:
         import ctypes
         from ctypes import wintypes
 
-        class POINT(ctypes.Structure):
-            _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
-
-        class MSG(ctypes.Structure):
-            _fields_ = [
-                ("hwnd", wintypes.HWND),
-                ("message", wintypes.UINT),
-                ("wParam", wintypes.WPARAM),
-                ("lParam", wintypes.LPARAM),
-                ("time", wintypes.DWORD),
-                ("pt", POINT),
-            ]
-
-        user32.GetMessageW.argtypes = [  # type: ignore[attr-defined]
-            ctypes.POINTER(MSG),
-            wintypes.HWND,
-            wintypes.UINT,
-            wintypes.UINT,
-        ]
-        user32.GetMessageW.restype = ctypes.c_int  # type: ignore[attr-defined]
-        msg = MSG()
+        bind_get_message(user32)
+        msg = wintypes.MSG()
         while not self._stop.is_set():
-            result = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)  # type: ignore[attr-defined]
+            try:
+                bind_get_message(user32)
+                result = int(user32.GetMessageW(ctypes.byref(msg), None, 0, 0) or 0)  # type: ignore[attr-defined]
+            except Exception as exc:
+                sys.stderr.write(f"battlebuddy hotkey: {exc}\n")
+                if self._stop.wait(0.05):
+                    break
+                continue
             if result == 0 or result == -1:
                 break
-            if not hooked_only and msg.message == WM_HOTKEY and int(msg.wParam) == _HOTKEY_ID:
+            if (
+                not hooked_only
+                and int(msg.message) == WM_HOTKEY
+                and int(msg.wParam) == self._hotkey_id
+            ):
                 self._emit()
 
     def _emit(self) -> None:
@@ -200,7 +245,7 @@ class HotkeyListener:
             wintypes.DWORD,
         ]
         user32.SetWindowsHookExW.restype = ctypes.c_void_p  # type: ignore[attr-defined]
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
         kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
         module = kernel32.GetModuleHandleW(None)

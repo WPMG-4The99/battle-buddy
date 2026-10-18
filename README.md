@@ -40,9 +40,9 @@ Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m
 
 ## Read This
 
-**Ctrl+Alt+R** dims the monitor you are on. Drag a box over on-screen text (a Stellaris event, a quest, a tooltip). Release. Battle Buddy reads it with the same local TTS. No cloud. No account.
+**Ctrl+1** dims every connected monitor. Drag a box over on-screen text on any screen, including across a boundary (a Stellaris event, a quest, a tooltip). Release. Battle Buddy reads it with the same local TTS. No cloud. No account.
 
-Esc cancels the box. The same hotkey, or Esc while it is speaking, stops the voice. **READ THIS** sits next to **SCAN**. **READ AGAIN** (next to ASK) grabs that same box again when the next event lands in the same spot. **REPEAT LAST** speaks the last text again.
+Esc cancels the box on all monitors at once. **Ctrl+3** or **STOP TALKING** (always on the top bar, even in a short window) kills the voice and undims an active box. Safe to press when nothing is speaking. Esc while it is speaking still stops the voice. **READ THIS**, **READ AGAIN**, and **REPEAT LAST** sit together and wrap on a narrow column. **SCAN**, **SNAP**, and **SNAP BOX** wrap as their own row. **READ AGAIN** grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again. The main page scrolls when the window is shorter than the controls. Last size and position land in `session.json`.
 
 Change the hotkey with `BATTLEBUDDY_READ_HOTKEY=ctrl+shift+r`, or add `"read_hotkey": "ctrl+shift+r"` in `session.json` under the Battle Buddy home folder. Other session keys stay put.
 
@@ -56,9 +56,13 @@ Windows OCR is the default. `winsdk` is used when that package imports. When it 
 
 ## Snap & Ask
 
-**Ctrl+Shift+F10** grabs the monitor under the pointer (Stellaris eats Alt). Local OCR, same path as Read This, then a spoken answer from that text plus this game's notes and databank. **SNAP** does the full monitor. **SNAP BOX** drags a region first. Esc stops speech. A follow-up box takes a typed question, or the mic when the box is empty.
+**Ctrl+2** dims every connected monitor. Drag a box. Release. Battle Buddy OCRs that region, says **Go ahead**, and listens. Status shows **Listening…**. Speak a question. Silence, **Ctrl+2**, or Enter ends the listen. It answers from the snapped text plus this game's notes and databank, then speaks the answer. It does not talk before you ask.
 
-Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`.
+If it hears nothing: **Didn't catch that**, then a typed box with focus. If the mic is off: **Mic is off. Type it.** and the same box. Enter submits a typed question.
+
+**SNAP** grabs the full monitor under the pointer, then the same listen → answer loop. **SNAP BOX** is the same drag-box path as Ctrl+2. Esc or **Ctrl+3** cancels the overlay, the listen, or speech. Failures are spoken and land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`.
+
+Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
 
 Brain local uses the sidecar when it is up, and the on-screen text when it is not. Brain Grok sends the text only. The image stays on the box unless `BATTLEBUDDY_SNAP_SEND_IMAGE=1`.
 
@@ -99,7 +103,7 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This keeps its hotkey, last box, and last text in `session.json`. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Failures append to `battlebuddy.log`. Not committed.
 
 ```text
 python -m battlebuddy note granary is low
