@@ -8,22 +8,49 @@ from typing import Any
 
 from battlebuddy.readthis.region import (
     Rect,
-    contains_point,
+    layer_index_at,
     local_rect,
     normalize_drag,
     selection_rect,
+    union_rects,
 )
 from battlebuddy.readthis.screen import (
+    capture_mouse,
     cursor_pos,
     enable_dpi_awareness,
+    make_clickable,
     overlay_layout,
     pin_topmost,
+    release_mouse,
     widget_hwnd,
     window_origin,
 )
 
 _GOLD = "#E6C35C"
 _HINT = "Drag a box over the text. Esc cancels."
+_POINTER_SEQ = ("<ButtonPress-1>", "<B1-Motion>", "<ButtonRelease-1>", "<Escape>")
+
+
+class SelectionSession:
+    """Shared drag across monitors. Virtual-desktop pixels. No Tk."""
+
+    def __init__(self, monitors: list[Rect]) -> None:
+        found = list(monitors) if monitors else [Rect(0, 0, 1920, 1080)]
+        self.monitors = found
+        self.bounds = union_rects(found)
+        self.start: tuple[int, int] | None = None
+
+    def press(self, x: int, y: int) -> int | None:
+        """Start a drag. Returns the monitor index that owns (x, y)."""
+        self.start = (int(x), int(y))
+        return layer_index_at(x, y, self.monitors)
+
+    def release(self, x: int, y: int) -> Rect | None:
+        if self.start is None:
+            return None
+        rect = selection_rect(self.start[0], self.start[1], int(x), int(y), self.bounds)
+        self.start = None
+        return rect
 
 
 @dataclass
@@ -48,6 +75,7 @@ class RegionOverlay:
     ) -> None:
         enable_dpi_awareness()
         self._tk = tk
+        self._root = root
         self._on_select = on_select
         self._on_cancel = on_cancel
         self._closed = False
@@ -55,25 +83,30 @@ class RegionOverlay:
         self._y0: int | None = None
         self._layers: list[_Layer] = []
         screens, desk = overlay_layout(root, monitors)
+        self._session = SelectionSession(screens)
+        self._session.bounds = desk
         self.bounds = desk
         try:
             for screen in screens:
                 self._layers.append(self._open_layer(tk, root, screen))
+            if len(screens) != 1 or screens[0] != desk:
+                self._layers.append(self._open_layer(tk, root, desk))
         except Exception:
             self.close()
             raise
         if not self._layers:
             raise RuntimeError("Could not open the read overlay.")
-        focus = self._layer_at(*cursor_pos(root)) or self._layers[0]
-        self.win = focus.win
-        self._arm(focus)
+        self.win = self._layers[-1].win
+        self._bind_app()
+        self._focus_input()
         self.win.after(60, self._pin)
 
     def hide(self) -> None:
         """Move every dim layer off the grab before the screenshot."""
         if self._closed:
             return
-        self._unbind_pointer()
+        self._unbind_app()
+        release_mouse()
         for layer in self._layers:
             try:
                 layer.win.attributes("-alpha", 0)
@@ -88,10 +121,6 @@ class RegionOverlay:
             except Exception:
                 pass
             try:
-                layer.win.grab_release()
-            except Exception:
-                pass
-            try:
                 layer.win.update_idletasks()
             except Exception:
                 pass
@@ -100,14 +129,11 @@ class RegionOverlay:
         if self._closed:
             return
         self._closed = True
-        self._unbind_pointer()
+        self._unbind_app()
+        release_mouse()
         layers = self._layers
         self._layers = []
         for layer in layers:
-            try:
-                layer.win.grab_release()
-            except Exception:
-                pass
             try:
                 layer.win.destroy()
             except Exception:
@@ -121,6 +147,10 @@ class RegionOverlay:
 
     def _open_layer(self, tk: object, root: object, bounds: Rect) -> _Layer:
         win = tk.Toplevel(root)  # type: ignore[attr-defined]
+        try:
+            win.withdraw()
+        except Exception:
+            pass
         win.overrideredirect(True)
         win.configure(bg="#000000")
         win.geometry(self._geometry(bounds))
@@ -137,42 +167,71 @@ class RegionOverlay:
         )
         canvas.pack(fill="both", expand=True)
         hint_id = canvas.create_text(
-            bounds.width // 2,
+            max(1, bounds.width // 2),
             28,
             text=_HINT,
             fill=_GOLD,
             font=("Arial", 16, "bold"),
         )
-        canvas.bind("<ButtonPress-1>", self._press)
-        canvas.bind("<B1-Motion>", self._motion)
-        canvas.bind("<ButtonRelease-1>", self._release)
-        win.bind("<Escape>", self._esc)
-        canvas.bind("<Escape>", self._esc)
+        self._bind_layer(win, canvas)
         try:
+            win.deiconify()
             win.update_idletasks()
         except Exception:
             pass
-        pin_topmost(widget_hwnd(win), bounds)
+        hwnd = widget_hwnd(win)
+        pin_topmost(hwnd, bounds)
+        make_clickable(hwnd)
         return _Layer(bounds=bounds, win=win, canvas=canvas, hint_id=hint_id)
 
-    def _arm(self, focus: _Layer) -> None:
-        try:
-            focus.win.grab_set_global()
-        except Exception:
+    def _bind_layer(self, win: object, canvas: object) -> None:
+        for target in (win, canvas):
             try:
-                focus.win.grab_set()
+                target.bind("<ButtonPress-1>", self._press, add="+")  # type: ignore[attr-defined]
+                target.bind("<B1-Motion>", self._motion, add="+")  # type: ignore[attr-defined]
+                target.bind("<ButtonRelease-1>", self._release, add="+")  # type: ignore[attr-defined]
+                target.bind("<Escape>", self._esc, add="+")  # type: ignore[attr-defined]
+            except Exception:
+                continue
+
+    def _bind_app(self) -> None:
+        win = getattr(self, "win", None)
+        if win is None:
+            return
+        for sequence, handler in (
+            ("<ButtonPress-1>", self._press),
+            ("<B1-Motion>", self._motion),
+            ("<ButtonRelease-1>", self._release),
+            ("<Escape>", self._esc),
+        ):
+            try:
+                win.bind_all(sequence, handler, add="+")
+            except Exception:
+                continue
+
+    def _unbind_app(self) -> None:
+        win = getattr(self, "win", None)
+        if win is None and self._layers:
+            win = self._layers[-1].win
+        if win is None:
+            return
+        for sequence in _POINTER_SEQ:
+            try:
+                win.unbind_all(sequence)
             except Exception:
                 pass
+
+    def _focus_input(self) -> None:
+        win = getattr(self, "win", None)
+        if win is None:
+            return
         try:
-            focus.win.focus_force()
+            win.lift()
+            win.attributes("-topmost", True)
+            win.focus_force()
         except Exception:
             pass
-
-    def _layer_at(self, x: int, y: int) -> _Layer | None:
-        for layer in self._layers:
-            if contains_point(layer.bounds, x, y):
-                return layer
-        return None
+        make_clickable(widget_hwnd(win))
 
     def _pin(self) -> None:
         if self._closed:
@@ -183,45 +242,39 @@ class RegionOverlay:
                 layer.win.attributes("-topmost", True)
             except Exception:
                 pass
-            pin_topmost(widget_hwnd(layer.win), layer.bounds)
+            hwnd = widget_hwnd(layer.win)
+            pin_topmost(hwnd, layer.bounds)
+            make_clickable(hwnd)
+        self._focus_input()
 
-    def _press(self, _event: object) -> None:
-        self._x0, self._y0 = cursor_pos(self.win)
-        try:
-            self.win.bind_all("<B1-Motion>", self._motion)
-            self.win.bind_all("<ButtonRelease-1>", self._release)
-        except Exception:
-            pass
+    def _press(self, _event: object) -> str | None:
+        if self._closed:
+            return "break"
+        x, y = cursor_pos(self.win)
+        self._x0, self._y0 = x, y
+        self._session.press(x, y)
+        capture_mouse(widget_hwnd(self.win))
+        return "break"
 
-    def _unbind_pointer(self) -> None:
-        win = getattr(self, "win", None)
-        if win is None and self._layers:
-            win = self._layers[0].win
-        if win is None:
-            return
-        for sequence in ("<B1-Motion>", "<ButtonRelease-1>"):
-            try:
-                win.unbind_all(sequence)
-            except Exception:
-                pass
-
-    def _motion(self, _event: object) -> None:
-        if self._x0 is None or self._y0 is None:
-            return
+    def _motion(self, _event: object) -> str | None:
+        if self._closed or self._x0 is None or self._y0 is None:
+            return "break"
         x1, y1 = cursor_pos(self.win)
         self._draw(self._x0, self._y0, x1, y1)
+        return "break"
 
-    def _release(self, _event: object) -> None:
+    def _release(self, _event: object) -> str | None:
         if self._closed or self._x0 is None or self._y0 is None:
-            return
+            return "break"
         x1, y1 = cursor_pos(self.win)
-        rect = selection_rect(self._x0, self._y0, x1, y1, self.bounds)
+        rect = self._session.release(x1, y1)
         self._x0 = None
         self._y0 = None
-        self._unbind_pointer()
+        release_mouse()
         if rect is None:
-            return
+            return "break"
         self._on_select(rect)
+        return "break"
 
     def _esc(self, _event: object) -> str:
         self.cancel()

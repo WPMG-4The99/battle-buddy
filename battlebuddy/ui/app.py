@@ -44,7 +44,7 @@ from battlebuddy.readthis.service import ReadAloud
 from battlebuddy.snap.service import SnapAsk
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
-from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
+from battlebuddy.voice.tts import speak_async, spoken_line, stop_speaking, tts_available
 
 _BG = "#0B0B0B"
 _GOLD = "#E6C35C"
@@ -911,6 +911,19 @@ class BattleBuddyApp:
             command=self._repeat_last,
         )
         self.repeat_btn.pack(side="left", ipady=10, padx=(8, 0))
+        self.stop_talk_btn = tk.Button(
+            query_row,
+            text="STOP TALKING",
+            font=("Arial", 14, "bold"),
+            bg=_SCARLET,
+            fg=_FG,
+            activebackground="#E03A54",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=self._stop_talking,
+        )
+        self.stop_talk_btn.pack(side="left", ipady=10, padx=(8, 0))
         self.query_btn = tk.Button(
             query_row,
             text="Submit",
@@ -1520,6 +1533,18 @@ class BattleBuddyApp:
 
     def _repeat_last(self) -> None:
         self.reader.repeat_last()
+
+    def _stop_talking(self) -> None:
+        """Kill any local TTS. Safe when nothing is speaking."""
+        try:
+            self.reader.stop_talking()
+        except Exception:
+            pass
+        try:
+            self.snap.stop_talking()
+        except Exception:
+            pass
+        stop_speaking()
 
     def _scan_now(self) -> None:
         """Immediate rescan. Ignores the 5s poll throttle. Fire stays live."""

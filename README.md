@@ -42,7 +42,7 @@ Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m
 
 **Ctrl+Alt+R** dims every connected monitor. Drag a box over on-screen text on any screen, including across a boundary (a Stellaris event, a quest, a tooltip). Release. Battle Buddy reads it with the same local TTS. No cloud. No account.
 
-Esc cancels the box on all monitors at once. The same hotkey, or Esc while it is speaking, stops the voice. **READ THIS** sits next to **SCAN**. **READ AGAIN** (next to ASK) grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again.
+Esc cancels the box on all monitors at once. The same hotkey, Esc while it is speaking, or **STOP TALKING** (next to REPEAT LAST / ASK) kills the voice. Safe to press when nothing is speaking. **READ THIS** sits next to **SCAN**. **READ AGAIN** (next to ASK) grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again.
 
 Change the hotkey with `BATTLEBUDDY_READ_HOTKEY=ctrl+shift+r`, or add `"read_hotkey": "ctrl+shift+r"` in `session.json` under the Battle Buddy home folder. Other session keys stay put.
 
@@ -56,7 +56,7 @@ Windows OCR is the default. `winsdk` is used when that package imports. When it 
 
 ## Snap & Ask
 
-**Ctrl+Shift+F10** grabs the monitor under the pointer (Stellaris eats Alt). Local OCR, same path as Read This, then a spoken answer from that text plus this game's notes and databank. **SNAP** does the full monitor under the pointer. **SNAP BOX** dims every connected monitor and drags a region first, including across a boundary. Esc stops speech. A follow-up box takes a typed question, or the mic when the box is empty.
+**Ctrl+Shift+F10** grabs the monitor under the pointer (Stellaris eats Alt). Local OCR, same path as Read This, then a spoken answer from that text plus this game's notes and databank. **SNAP** does the full monitor under the pointer. **SNAP BOX** dims every connected monitor and drags a region first, including across a boundary. Esc or **STOP TALKING** stops speech. A follow-up box takes a typed question, or the mic when the box is empty.
 
 Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`.
 
