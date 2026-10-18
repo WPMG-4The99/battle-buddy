@@ -27,6 +27,7 @@ from battlebuddy.snap.answer import DEFAULT_QUESTION
 from battlebuddy.snap.config import load_snap_hotkey, snap_hotkey_label
 from battlebuddy.snap.pipeline import SnapResult, finish_snap
 from battlebuddy.snap.shots import fitted_size
+from battlebuddy.sources.lookup import LOOKING_CUE, live_lookup
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tts import speak, stop_speaking
 from battlebuddy.xai.loop import api_key, chat
@@ -70,10 +71,12 @@ class SnapAsk:
         status: Callable[[str], None],
         game_name: Callable[[], str | None],
         databank: Callable[[], object] | None = None,
+        on_answer: Callable[[str], None] | None = None,
     ) -> None:
         self._status_cb = status
         self._game_name = game_name
         self._databank = databank
+        self._on_answer = on_answer
         self._token = 0
         self._busy = False
         self._closed = False
@@ -407,9 +410,33 @@ class SnapAsk:
                 self._busy = False
                 self._fallback_type("Type a question about this snap.", token)
                 return
+            self._status(LOOKING_CUE)
+            looked = None
+            try:
+                looked = live_lookup(
+                    asked,
+                    game,
+                    ocr=ocr_text,
+                    notes=notes,
+                    pages=pages,
+                    home=home,
+                )
+            except Exception as exc:
+                report("snap live lookup failed", exc)
+            wiki_pages = list(getattr(looked, "page_lines", ()) or []) or pages
+            live_answer = (getattr(looked, "speak", "") or "").strip()
+            shown = (getattr(looked, "answer", "") or "").strip()
             try:
                 if image is None:
-                    result = _answer_saved(ocr_text, game, asked, notes, pages, home)
+                    result = _answer_saved(
+                        ocr_text,
+                        game,
+                        asked,
+                        notes,
+                        wiki_pages,
+                        home,
+                        answer=live_answer or None,
+                    )
                 else:
                     result = finish_snap(
                         image,
@@ -417,12 +444,13 @@ class SnapAsk:
                         game,
                         asked,
                         notes=notes,
-                        pages=pages,
+                        pages=wiki_pages,
                         home=home,
                         brain=load_brain(home),
                         chat_fn=chat,
                         local_fn=_local,
                         key=api_key(),
+                        answer=live_answer or None,
                     )
             except Exception as exc:
                 self._busy = False
@@ -431,18 +459,20 @@ class SnapAsk:
             if token != self._token or self._closed:
                 self._busy = False
                 return
-            self._speak(result, token)
+            self._speak(result, token, pane=shown or None)
         except Exception as exc:
             self._busy = False
             self._fail("Snap could not answer.", exc)
 
-    def _speak(self, result: SnapResult, token: int) -> None:
+    def _speak(self, result: SnapResult, token: int, pane: str | None = None) -> None:
         answer = (result.answer or "").strip()
         if not answer:
             self._fail("Snap could not answer.")
             return
-        self._last_answer = answer
+        shown = (pane or "").strip() or answer
+        self._last_answer = shown
         self._status(answer)
+        self._emit_answer(shown)
         arm_escape(self._on_escape)
 
         def _allow() -> bool:
@@ -450,6 +480,7 @@ class SnapAsk:
 
         spoke = False
         try:
+            stop_speaking()
             spoke = bool(speak(answer, timeout=90, allow=_allow))
         except Exception as exc:
             report("snap TTS failed", exc)
@@ -458,6 +489,15 @@ class SnapAsk:
         if not spoke:
             report("snap TTS did not run")
         self._busy = False
+
+    def _emit_answer(self, text: str) -> None:
+        cb = self._on_answer
+        if cb is None:
+            return
+        try:
+            cb(text)
+        except Exception as exc:
+            report("snap answer pane failed", exc)
 
     def _show_followup(self) -> None:
         root = self._root
@@ -706,6 +746,7 @@ def _answer_saved(
     notes: list[str],
     pages: list[str],
     home: Path,
+    answer: str | None = None,
 ) -> SnapResult:
     """Re-ask the last snap. Do not grab or store a second fact."""
     from battlebuddy.snap.answer import answer_snap
@@ -715,19 +756,23 @@ def _answer_saved(
 
     pack = pack_context(ocr_text, notes, pages)
     asked = (question or "").strip() or DEFAULT_QUESTION
-    answer = answer_snap(
-        asked,
-        pack,
-        brain=load_brain(home),
-        chat_fn=chat,
-        local_fn=_local,
-        send_image=False,
-        key=api_key(),
-    )
+    ready = (answer or "").strip()
+    if ready:
+        spoken = ready
+    else:
+        spoken = answer_snap(
+            asked,
+            pack,
+            brain=load_brain(home),
+            chat_fn=chat,
+            local_fn=_local,
+            send_image=False,
+            key=api_key(),
+        )
     fact = SnapFact(id="", game=game or "", text=ocr_text, source="snap", created_at="")
     result = SnapResult(
         text=ocr_text,
-        answer=answer,
+        answer=spoken,
         fact=fact,
         image_path=home / "snaps",
         game=game,

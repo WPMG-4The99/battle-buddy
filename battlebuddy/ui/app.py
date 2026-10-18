@@ -18,12 +18,13 @@ from battlebuddy.databank.seed import (
 )
 from battlebuddy.databank.slug import databank_label, game_slug
 from battlebuddy.databank.store import DatabankStore
-from battlebuddy.databank.wiki import ask_or_hunt, rank_ask_result, should_hunt
+from battlebuddy.databank.wiki import ask_or_hunt, local_covers, rank_ask_result, should_hunt
 from battlebuddy.game_detect import detect_game, status_line
 from battlebuddy.memory.catalog import KnowledgeCatalog, seen_on_disk_line
 from battlebuddy.memory.war_room import ROSTER_NAMES, parse_war_room_line
 from battlebuddy.reminders.commands import run_line
 from battlebuddy.vision.miss import is_miss_command, miss_check
+from battlebuddy.session.log import report
 from battlebuddy.session.tier import (
     TIER_GENTLE,
     TIER_HANDHOLD,
@@ -44,6 +45,15 @@ from battlebuddy.ui.layout import (
     wrap_positions,
 )
 from battlebuddy.harvest.locate import load_harvest
+from battlebuddy.sources.discover import maybe_discover
+from battlebuddy.sources.lookup import LOOKING_CUE, format_answer, live_lookup
+from battlebuddy.sources.store import (
+    add_source,
+    needs_discover,
+    pin_source,
+    ranked_sources,
+    remove_source,
+)
 from battlebuddy.xai.loop import answer_ask, api_key, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
@@ -264,11 +274,13 @@ class BattleBuddyApp:
         self._fetching = False
         self._asking = False
         self._seed_started: set[str] = set()
+        self._discover_started: set[str] = set()
         self.reader = ReadAloud(self._read_status, lambda: self._game_name, self._read_saved)
         self.snap = SnapAsk(
             self._read_status,
             lambda: self._game_name,
             lambda: self.databank,
+            on_answer=self._snap_answer,
         )
 
         self._wrap_busy: set[int] = set()
@@ -1033,6 +1045,37 @@ class BattleBuddyApp:
             anchor="w",
         )
         self.source_count.pack(fill="x", pady=4)
+
+        self.wiki_box = tk.Frame(box, bg=_BG)
+        self.wiki_box.pack(fill="x", pady=(0, 6))
+        tk.Label(
+            self.wiki_box,
+            text="Sources",
+            font=("Arial", 13, "bold"),
+            fg=_GOLD,
+            bg=_BG,
+            anchor="w",
+        ).pack(fill="x", pady=(4, 2))
+        self.wiki_list = tk.Frame(self.wiki_box, bg=_BG)
+        self.wiki_list.pack(fill="x")
+        add_row = tk.Frame(self.wiki_box, bg=_BG)
+        add_row.pack(fill="x", pady=(4, 0))
+        self.wiki_entry = self._make_entry(add_row, size=14)
+        self.wiki_entry.pack(side="left", fill="x", expand=True, ipady=4)
+        self.wiki_entry.bind("<Return>", lambda _event: self._add_wiki_source())
+        add_btn = tk.Button(
+            add_row,
+            text="ADD",
+            font=("Arial", 13, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._add_wiki_source,
+        )
+        add_btn.pack(side="left", padx=(8, 0), ipady=4, ipadx=10)
         self._refresh_sources()
 
     def _build_ask(self, parent: object) -> None:
@@ -1144,19 +1187,142 @@ class BattleBuddyApp:
         try:
             label.config(text=line)
         except Exception:
+            pass
+        self._refresh_wiki_sources()
+
+    def _refresh_wiki_sources(self) -> None:
+        """Paint this game's wiki hubs. Not the saved page inventory."""
+        box = getattr(self, "wiki_list", None)
+        if box is None:
             return
+        try:
+            for child in list(box.winfo_children()):
+                child.destroy()
+        except Exception:
+            return
+        hubs = ranked_sources(self._game_name)
+        tk = self.tk
+        if not hubs:
+            tk.Label(
+                box,
+                text="No wiki sources yet. SCAN a game or ADD a URL.",
+                font=_HINT_FONT,
+                fg=_MUTED,
+                bg=_BG,
+                anchor="w",
+                wraplength=520,
+                justify="left",
+            ).pack(fill="x")
+            return
+        for hub in hubs:
+            self._wiki_row(box, hub)
+
+    def _wiki_row(self, parent: object, hub: object) -> None:
+        tk = self.tk
+        row = tk.Frame(parent, bg=_BG)
+        row.pack(fill="x", pady=2)
+        pin = "PINNED" if bool(getattr(hub, "pinned", False)) else "PIN"
+        name = str(getattr(hub, "name", "") or "Wiki")
+        href = str(getattr(hub, "url", "") or "")
+        tk.Label(
+            row,
+            text=name,
+            font=("Arial", 13),
+            fg=_FG,
+            bg=_BG,
+            anchor="w",
+        ).pack(side="left")
+        tk.Button(
+            row,
+            text=pin,
+            font=("Arial", 11, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=lambda u=href, p=not bool(getattr(hub, "pinned", False)): self._pin_wiki_source(u, p),
+        ).pack(side="right", padx=(4, 0))
+        tk.Button(
+            row,
+            text="REMOVE",
+            font=("Arial", 11, "bold"),
+            bg=_BTN_DARK,
+            fg=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=lambda u=href: self._remove_wiki_source(u),
+        ).pack(side="right")
+
+    def _add_wiki_source(self) -> None:
+        raw = ""
+        try:
+            raw = str(self.wiki_entry.get()).strip()
+        except Exception:
+            return
+        if not looks_like_public_url(raw):
+            try:
+                self.databank_status.config(text="Paste a public wiki URL.")
+            except Exception:
+                pass
+            return
+        added = add_source(self._game_name, raw)
+        if added is None:
+            try:
+                self.databank_status.config(text="Need a public http or https URL.")
+            except Exception:
+                pass
+            return
+        try:
+            self.wiki_entry.delete(0, "end")
+        except Exception:
+            pass
+        try:
+            self.databank_status.config(text=f"Added {added.name}.")
+        except Exception:
+            pass
+        self._refresh_wiki_sources()
+
+    def _remove_wiki_source(self, url: str) -> None:
+        remove_source(self._game_name, url)
+        self._refresh_wiki_sources()
+
+    def _pin_wiki_source(self, url: str, pinned: bool) -> None:
+        pin_source(self._game_name, url, pinned)
+        self._refresh_wiki_sources()
 
     def _ask(self) -> None:
-        """Local retrieve first. Hunt the game wiki in the background on a miss."""
+        """Local retrieve first. Live wiki lookup on a miss when a key is set."""
         if self._asking:
             return
         question = str(self.ask_entry.get()).strip()
         result = ask_pages(self.databank, self._game_name, question)
-        if not should_hunt(self.databank, self._game_name, question, result):
+        covered = False
+        try:
+            covered = local_covers(self.databank, self._game_name, question, result)
+        except Exception:
+            covered = False
+        hunt = should_hunt(self.databank, self._game_name, question, result)
+        if covered or (not hunt and not self._want_live()):
             ranked = rank_ask_result(result, question)
             self._show_ask(answer_ask(ranked, question, self.databank, self._game_name))
             if result.ok:
                 self._clear_ask_box()
+            return
+        if self._want_live():
+            self._asking = True
+            try:
+                self.ask_btn.config(state="disabled")
+            except Exception:
+                pass
+            self._show_ask(f"{LOOKING_CUE}.")
+            if result.ok:
+                self._clear_ask_box()
+            game = self._game_name
+            threading.Thread(
+                target=self._ask_live_worker,
+                args=(question, game, result),
+                daemon=True,
+            ).start()
             return
         self._asking = True
         try:
@@ -1172,6 +1338,43 @@ class BattleBuddyApp:
             args=(question, game, result),
             daemon=True,
         ).start()
+
+    def _want_live(self) -> bool:
+        if not api_key():
+            return False
+        return bool((self._game_name or "").strip())
+
+    def _ask_live_worker(
+        self,
+        question: str,
+        game: str | None,
+        local: object,
+    ) -> None:
+        shown = ""
+        try:
+            notes: list[str] = []
+            try:
+                notes = [item.text for item in self.catalog.list_notes(game)[:5]]
+            except Exception:
+                notes = []
+            looked = live_lookup(
+                question,
+                game,
+                notes=notes,
+                home=self.databank.home,
+            )
+            if looked.speak and not looked.local_only:
+                shown = looked.answer
+            else:
+                ranked = rank_ask_result(local, question)
+                fallback = answer_ask(ranked, question, self.databank, game)
+                shown = format_answer(fallback, looked.urls, looked.notice)
+        except Exception:
+            _result, shown = hunt_or_keep_local(self.databank, game, question, local)
+        try:
+            self.root.after(0, lambda s=shown: self._ask_hunt_done(local, s))
+        except Exception:
+            self._asking = False
 
     def _ask_hunt_worker(
         self,
@@ -1815,6 +2018,17 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _snap_answer(self, text: str) -> None:
+        """Snap answers land in the ASK pane, including source links."""
+
+        def _apply() -> None:
+            self._show_ask(text)
+
+        try:
+            self.root.after(0, _apply)
+        except Exception:
+            return
+
     def _read_status(self, text: str) -> None:
         """Read This feedback. Reminder FIRE status stays on its own label."""
 
@@ -1973,14 +2187,17 @@ class BattleBuddyApp:
         if not is_named_game(old):
             self._game_name = name
             self._refresh_sources()
+            self._maybe_discover_sources(name)
             self._maybe_seed_wiki(name)
             return
         if game_slug(old) == game_slug(name):
             self._game_name = name
+            self._maybe_discover_sources(name)
             self._maybe_seed_wiki(name)
             return
         self._game_name = name
         self._refresh_sources()
+        self._maybe_discover_sources(name)
         if self._maybe_seed_wiki(name):
             return
         notice = switched_databank_line(name)
@@ -1989,6 +2206,41 @@ class BattleBuddyApp:
             self.databank_status.config(text=notice)
         except Exception:
             pass
+
+    def _maybe_discover_sources(self, game: str | None) -> None:
+        """First SCAN of a named game: file wiki hub URLs only. No article dump."""
+        if not needs_discover(game):
+            return
+        slug = game_slug(game)
+        if slug in self._discover_started:
+            return
+        self._discover_started.add(slug)
+        threading.Thread(target=self._discover_worker, args=(game,), daemon=True).start()
+
+    def _discover_worker(self, game: str | None) -> None:
+        try:
+            hubs = maybe_discover(game, self.databank.home)
+        except Exception as exc:
+            report("wiki source discover failed", exc)
+            hubs = []
+        if not hubs:
+            self._discover_started.discard(game_slug(game))
+        try:
+            self.root.after(0, lambda n=len(hubs), g=game: self._discover_done(n, g))
+        except Exception:
+            return
+
+    def _discover_done(self, count: int, game: str | None) -> None:
+        if game_slug(self._game_name) != game_slug(game):
+            return
+        self._refresh_wiki_sources()
+        if count <= 0:
+            return
+        line = f"Filed {count} wiki sources for {game}."
+        try:
+            self.databank_status.config(text=line)
+        except Exception:
+            return
 
     def _maybe_seed_wiki(self, game: str | None) -> bool:
         """Empty new-game folder: hold the line and fetch wikis. Reminders stay live."""

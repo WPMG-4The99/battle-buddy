@@ -222,6 +222,8 @@ class AnswerTest(unittest.TestCase):
         self.assertIn("Go ahead", readme)
         self.assertIn("Listening", readme)
         self.assertIn("Didn't catch that", readme)
+        self.assertIn("Looking it up", readme)
+        self.assertIn("Sources", readme)
 
     def test_grok_exception_falls_back_to_the_pack(self) -> None:
         def _chat(*_args: object, **_kwargs: object) -> str:

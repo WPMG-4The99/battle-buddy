@@ -12,8 +12,8 @@ Four beats plus a hygiene loop. No cloud. Nothing invented.
 
 1. **Remind.** Voice or typed reminder that survives restart. State lives on disk under `%USERPROFILE%\.battlebuddy`. FIRE at due time. Local TTS if the box has it.
 2. **SCAN.** Live-captures the running game from local processes (Steam/Epic folder or Unreal shipping). No Steam API.
-3. **Wiki seed.** First sight of a new empty-folder game fetches the top 3 public wiki pages (DuckDuckGo HTML `{game} wiki`, public GET, no account).
-4. **ASK.** Answers from those local pages. Compile a real how-to or miss. Nothing invented.
+3. **Wiki seed.** First sight of a new empty-folder game fetches the top 3 public wiki pages (DuckDuckGo HTML `{game} wiki`, public GET, no account). SCAN also files that game's wiki hub list (`games/<slug>/sources.json`) when a Grok key is set. List only. No whole-wiki scrape.
+4. **ASK.** Answers from those local pages, or a live lookup of that game's wiki sources. Compile a real how-to or miss. Nothing invented.
 5. **Hygiene.** 15 minutes work / 5 minutes break. Break FIRE rotates stand/move, eyes, breath. Gold **HYGIENE** button starts and stops it. Survives restart.
 
 ## The surface
@@ -56,13 +56,17 @@ Windows OCR is the default. `winsdk` is used when that package imports. When it 
 
 ## Snap & Ask
 
-**Ctrl+2** dims every connected monitor. Drag a box. Release. Battle Buddy OCRs that region, says **Go ahead**, and listens. Status shows **Listening…**. Speak a question. Silence, **Ctrl+2**, or Enter ends the listen. It answers from the snapped text plus this game's notes and databank, then speaks the answer. It does not talk before you ask.
+**Ctrl+2** dims every connected monitor. Drag a box. Release. Battle Buddy OCRs that region, says **Go ahead**, and listens. Status shows **Listening…**. Speak a question. Silence, **Ctrl+2**, or Enter ends the listen. It says **Looking it up**, searches this game's wiki sources (plus the snap and local notes), speaks a short answer, and shows source links in the ASK pane. It does not talk before you ask.
 
-If it hears nothing: **Didn't catch that**, then a typed box with focus. If the mic is off: **Mic is off. Type it.** and the same box. Enter submits a typed question.
+If it hears nothing: **Didn't catch that**, then a typed box with focus. If the mic is off: **Mic is off. Type it.** and the same box. Enter submits a typed question. Typed ASK and the wiki/question box use the same live lookup.
 
 **SNAP** grabs the full monitor under the pointer, then the same listen → answer loop. **SNAP BOX** is the same drag-box path as Ctrl+2. Esc or **Ctrl+3** cancels the overlay, the listen, or speech. Failures are spoken and land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`.
 
-Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
+No Grok key or no network: it says so, then answers from the snap and local notes only. Never silent.
+
+Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. Fetched wiki pages cache under `games/<slug>/cache` for 7 days. No bulk crawl. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
+
+**Sources** under DATABANK: ADD / REMOVE / PIN wiki hub URLs for the active game. Pinned rank first. The JSON at `games/<slug>/sources.json` is editable on disk.
 
 Brain local uses the sidecar when it is up, and the on-screen text when it is not. Brain Grok sends the text only. The image stays on the box unless `BATTLEBUDDY_SNAP_SEND_IMAGE=1`.
 
@@ -121,7 +125,9 @@ On a Windows box: `.\scripts\build-windows.ps1` (PyInstaller is build-only). Do 
 
 Yard 1 needs no key. Offline remind / FIRE / hygiene stay on disk with local TTS.
 
-`XAI_API_KEY` in the environment maps messy remind / list / snooze / clear / hygiene lines onto the existing engine. Asks compile from saved wiki pages. Grok does not invent when those pages miss. Confirm and FIRE stay OS-local TTS. No UI field. No account. Never commit the key. Absent key is today's path.
+`XAI_API_KEY` in the Windows user environment maps messy remind / list / snooze / clear / hygiene lines onto the existing engine, discovers per-game wiki hubs, and live-searches those hubs at ask time. Asks compile from saved pages plus on-demand wiki hits. Grok does not invent when those pages miss. Confirm and FIRE stay OS-local TTS. No UI field. No account. Never commit the key. Absent key is today's path: local notes and the snap, and it says the key is missing.
+
+Optional `BATTLEBUDDY_XAI_MODEL` picks the Grok model. Default is a current Grok model (`grok-4.6`).
 
 Optional `STEAM_WEB_API_KEY` can add Corsair Cove news, achievement count, and owned status to `harvest`. Unset skips. No UI field. Never a Steam password. Never commit the key. Local library parse still works without it.
 
@@ -146,7 +152,8 @@ battlebuddy/readthis/          region grab, local OCR, read aloud
 battlebuddy/snap/              Snap & Ask. Monitor grab, sourced snap fact
 battlebuddy/game_detect/       local process SCAN. No Steam API.
 battlebuddy/databank/          public wiki GET, local ASK
-battlebuddy/xai/               optional Grok map/compile (env key only)
+battlebuddy/sources/           per-game wiki hubs, live lookup, 7-day page cache
+battlebuddy/xai/               optional Grok map/compile/live search (env key only)
 battlebuddy/ui/                high-contrast window
 BattleBuddy.spec               PyInstaller onedir
 installer/BattleBuddy.iss      per-user Inno Setup (no admin)

@@ -63,6 +63,7 @@ def finish_snap(
     chat_fn: object = None,
     local_fn: object = None,
     key: str | None = None,
+    answer: str | None = None,
 ) -> SnapResult:
     """Persist the frame and the sourced fact, then answer from that pack."""
     path = save_snap(image, home)
@@ -71,19 +72,23 @@ def finish_snap(
     asked = (question or "").strip() or DEFAULT_QUESTION
     pack = pack_context(ocr_text, list(notes or []), list(pages or []))
     image_png = path.read_bytes() if send_snap_image(home) else None
-    answer = answer_snap(
-        asked,
-        pack,
-        brain=brain,
-        chat_fn=chat_fn,  # type: ignore[arg-type]
-        local_fn=local_fn,  # type: ignore[arg-type]
-        image_png=image_png,
-        send_image=send_snap_image(home),
-        key=key,
-    )
+    ready = (answer or "").strip()
+    if ready:
+        spoken = ready
+    else:
+        spoken = answer_snap(
+            asked,
+            pack,
+            brain=brain,
+            chat_fn=chat_fn,  # type: ignore[arg-type]
+            local_fn=local_fn,  # type: ignore[arg-type]
+            image_png=image_png,
+            send_image=send_snap_image(home),
+            key=key,
+        )
     result = SnapResult(
         text=fact.text,
-        answer=answer,
+        answer=spoken,
         fact=fact,
         image_path=path,
         game=game,

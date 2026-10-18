@@ -9,8 +9,9 @@ from battlebuddy.session.tier import BRAIN_GROK, BRAIN_LOCAL, load_brain
 from battlebuddy.snap.context import grounded_answer
 
 _SYSTEM = (
-    "Answer from the context only. One or two sentences. Do not invent. "
-    "If the context does not say, reply exactly: Can't find that in the snap."
+    "Answer from the context only (screen, notes, and wiki pages). "
+    "One or two sentences. Do not invent. "
+    "If the context does not say, reply exactly: Can't find that."
 )
 DEFAULT_QUESTION = "Summarize what is on this screen."
 
