@@ -21,7 +21,7 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
 
   python -m battlebuddy ui
   Read This: Ctrl+1, or the READ THIS button. pip install -r requirements-readthis.txt
-  Snap & Ask: Ctrl+2, or the SNAP button. SNAP BOX drags a region.
+  Snap & Ask: Ctrl+2 dims every monitor, drag a box, then speak a question.
   Stop Talking: Ctrl+3, or the STOP TALKING button. Safe when idle.
   python -m battlebuddy remind me in 1 minute to check food stores
   python -m battlebuddy hygiene start

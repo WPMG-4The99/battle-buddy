@@ -27,7 +27,7 @@ from battlebuddy.snap.answer import DEFAULT_QUESTION
 from battlebuddy.snap.config import load_snap_hotkey, snap_hotkey_label
 from battlebuddy.snap.pipeline import SnapResult, finish_snap
 from battlebuddy.snap.shots import fitted_size
-from battlebuddy.voice.stt import listen_once
+from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tts import speak, stop_speaking
 from battlebuddy.xai.loop import api_key, chat
 
@@ -86,7 +86,11 @@ class SnapAsk:
         self._last_ocr = ""
         self._last_answer = ""
         self._last_game: str | None = None
+        self._pending_image: object | None = None
         self._answer_label: object | None = None
+        self._listen_banner: object | None = None
+        self._listening = False
+        self._listen_stop = threading.Event()
 
     @property
     def hotkey_label(self) -> str:
@@ -95,6 +99,10 @@ class SnapAsk:
     def bind_ui(self, tk: object, root: object) -> None:
         self._tk = tk
         self._root = root
+        try:
+            root.bind_all("<Return>", self._on_listen_enter, add="+")  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def start_hotkey(self) -> None:
         if self._listener is not None or self._closed:
@@ -114,21 +122,26 @@ class SnapAsk:
 
     def shutdown(self) -> None:
         self._closed = True
+        self._listen_stop.set()
+        self._listening = False
         self._cancel()
         overlay = self._overlay
         self._overlay = None
         if overlay is not None:
             overlay.close()
         self._close_follow()
+        self._close_listen_banner()
         listener = self._listener
         self._listener = None
         if listener is not None:
             listener.stop()
 
     def snap_monitor(self) -> None:
-        """Grab the monitor under the pointer and answer."""
+        """Grab the monitor under the pointer, then listen for a question."""
         if self._closed:
             return
+        self._close_follow()
+        self._cancel_overlay()
         self._cancel()
         self._status("Snapping.")
         root = self._root
@@ -140,13 +153,12 @@ class SnapAsk:
         ).start()
 
     def snap_box(self) -> None:
-        """Dim every monitor, then drag a region. Same OCR and answer as SNAP."""
+        """Dim every monitor, drag a region, then listen for a question."""
         if self._closed or self._tk is None or self._root is None:
             return
+        self._close_follow()
+        self._cancel_overlay()
         self._cancel()
-        if self._overlay is not None:
-            self._overlay.cancel()
-            return
         self._status("Drag a box. Esc cancels.")
         try:
             self._overlay = RegionOverlay(
@@ -155,20 +167,24 @@ class SnapAsk:
                 self._on_box,
                 self._on_box_cancel,
             )
-        except Exception:
+        except Exception as exc:
             self._overlay = None
-            self._status("Could not open the snap box.")
+            self._fail("Could not open the snap box.", exc)
 
     def stop_talking(self) -> None:
-        """Cut current speech and cancel an active SNAP BOX. Idle calls are safe."""
+        """Cancel overlay, listening, or speech. Idle calls are safe."""
         if self._closed:
             return
         self._cancel_overlay()
+        self._listen_stop.set()
+        self._listening = False
+        self._hide_listen_banner()
+        self._close_follow()
         self._cancel()
         self._status("Stopped.")
 
     def ask_followup(self, question: str | None = None) -> None:
-        """Typed question. Empty Enter describes the screen and speaks it."""
+        """Typed question from the fallback box. Empty Enter waits for a question."""
         if self._closed:
             return
         if not self._last_ocr:
@@ -176,8 +192,8 @@ class SnapAsk:
             return
         asked = (question if question is not None else self._entry_text()).strip()
         if not asked:
-            asked = DEFAULT_QUESTION
-        self._cancel()
+            self._status("Type a question about this snap.")
+            return
         token = self._token
         threading.Thread(
             target=self._answer_worker,
@@ -190,14 +206,32 @@ class SnapAsk:
         if root is None or self._closed:
             return
         try:
-            root.after(0, self.snap_monitor)  # type: ignore[attr-defined]
+            root.after(0, self._hotkey_main)  # type: ignore[attr-defined]
         except Exception:
             return
 
+    def _hotkey_main(self) -> None:
+        if self._closed:
+            return
+        if self._overlay is not None:
+            try:
+                self._overlay.cancel()
+            except Exception:
+                self._cancel_overlay()
+            return
+        if self._listening:
+            self._listen_stop.set()
+            return
+        self.snap_box()
+
     def _on_escape(self) -> None:
+        self._listen_stop.set()
+        self._listening = False
+        self._hide_listen_banner()
         self._token += 1
         self._busy = False
         stop_speaking()
+        disarm_escape()
         self._status("Stopped.")
 
     def _on_box(self, rect: Rect) -> None:
@@ -280,19 +314,68 @@ class SnapAsk:
         game = self._current_game()
         self._last_ocr = text
         self._last_game = game
-        self._answer_worker(text, game, DEFAULT_QUESTION, token, image=image)
+        self._pending_image = image
+        self._prompt_question(token, image)
 
-    def _listen_worker(self, token: int) -> None:
+    def _prompt_question(self, token: int, image: object | None) -> None:
+        """After OCR: cue the mic, listen, then answer. No talking before he asks."""
+        if token != self._token or self._closed:
+            return
+        if not stt_available():
+            self._fallback_type("Mic is off. Type it.", token)
+            return
+        self._status("Listening…")
+        self._show_listen_banner()
+        self._listen_stop.clear()
+        self._listening = True
+        arm_escape(self._on_escape)
+
+        def _allow() -> bool:
+            return (
+                token == self._token
+                and not self._closed
+                and not self._listen_stop.is_set()
+            )
+
         try:
-            heard = listen_once()
-            if token != self._token or self._closed:
+            try:
+                speak("Go ahead", timeout=8, allow=_allow)
+            except Exception as exc:
+                report("snap cue TTS failed", exc)
+            if not _allow():
                 return
-            if not heard:
-                self._fail("Heard nothing. Type it.")
-                return
-            self._answer_worker(self._last_ocr, self._last_game, heard, token)
+            heard = listen_once(timeout_seconds=12, allow=_allow)
         except Exception as exc:
             self._fail("Snap listen failed.", exc)
+            return
+        finally:
+            self._listening = False
+            disarm_escape()
+            self._hide_listen_banner()
+        if token != self._token or self._closed:
+            return
+        asked = (heard or "").strip()
+        if asked:
+            self._answer_worker(self._last_ocr, self._last_game, asked, token, image=image)
+            return
+        self._fallback_type("Didn't catch that", token)
+
+    def _fallback_type(self, message: str, token: int) -> None:
+        line = (message or "").strip() or "Type a question about this snap."
+        self._status(line)
+        try:
+            speak(line, timeout=20)
+        except Exception as exc:
+            report("snap fallback TTS failed", exc)
+        if token != self._token or self._closed:
+            return
+        self._show_followup()
+
+    def _on_listen_enter(self, _event: object | None = None) -> str | None:
+        if not self._listening:
+            return None
+        self._listen_stop.set()
+        return "break"
 
     def _answer_worker(
         self,
@@ -319,7 +402,11 @@ class SnapAsk:
                 )
             except Exception:
                 pages = []
-            asked = (question or "").strip() or DEFAULT_QUESTION
+            asked = (question or "").strip()
+            if not asked:
+                self._busy = False
+                self._fallback_type("Type a question about this snap.", token)
+                return
             try:
                 if image is None:
                     result = _answer_saved(ocr_text, game, asked, notes, pages, home)
@@ -370,10 +457,6 @@ class SnapAsk:
             disarm_escape()
         if not spoke:
             report("snap TTS did not run")
-        if token != self._token or self._closed:
-            self._busy = False
-            return
-        self._show_followup()
         self._busy = False
 
     def _show_followup(self) -> None:
@@ -437,7 +520,7 @@ class SnapAsk:
         win.bind("<Escape>", lambda _event: self._escape_follow())
         tk.Label(  # type: ignore[attr-defined]
             win,
-            text="Enter submits. Empty Enter describes the screen.",
+            text="Type a question. Enter submits.",
             font=("Arial", 11),
             fg="#C4C0B4",
             bg="#0B0B0B",
@@ -514,11 +597,75 @@ class SnapAsk:
         if self._overlay is overlay:
             self._overlay = None
 
+    def _show_listen_banner(self) -> None:
+        root = self._root
+        if root is None:
+            return
+        try:
+            root.after(0, self._open_listen_banner)  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+    def _open_listen_banner(self) -> None:
+        if self._closed or self._tk is None or self._root is None:
+            return
+        if self._listen_banner is not None:
+            return
+        tk = self._tk
+        win = tk.Toplevel(self._root)  # type: ignore[attr-defined]
+        win.title("Snap")
+        win.configure(bg="#0B0B0B")
+        try:
+            win.attributes("-topmost", True)
+            win.overrideredirect(True)
+        except Exception:
+            pass
+        tk.Label(  # type: ignore[attr-defined]
+            win,
+            text="Listening…",
+            font=("Arial", 22, "bold"),
+            fg="#E6C35C",
+            bg="#0B0B0B",
+        ).pack(padx=24, pady=16)
+        try:
+            win.update_idletasks()
+            width = int(win.winfo_reqwidth() or 220)
+            height = int(win.winfo_reqheight() or 70)
+            screen_w = int(win.winfo_screenwidth() or 800)
+            x = max(0, (screen_w - width) // 2)
+            win.geometry(f"{width}x{height}+{x}+40")
+        except Exception:
+            pass
+        self._listen_banner = win
+
+    def _hide_listen_banner(self) -> None:
+        root = self._root
+        if root is not None:
+            try:
+                root.after(0, self._close_listen_banner)  # type: ignore[attr-defined]
+                return
+            except Exception:
+                pass
+        self._close_listen_banner()
+
+    def _close_listen_banner(self) -> None:
+        win = self._listen_banner
+        self._listen_banner = None
+        if win is None:
+            return
+        try:
+            win.destroy()  # type: ignore[attr-defined]
+        except Exception:
+            return
+
     def _cancel(self) -> None:
         self._token += 1
         self._busy = False
+        self._listen_stop.set()
+        self._listening = False
         stop_speaking()
         disarm_escape()
+        self._hide_listen_banner()
 
     def _fail(self, message: str, exc: BaseException | None = None) -> None:
         """Show and speak a short error. Log the traceback when there is one."""
