@@ -37,7 +37,12 @@ from battlebuddy.session.tier import (
     save_window,
     window_geometry,
 )
-from battlebuddy.ui.layout import wrap_positions
+from battlebuddy.ui.layout import (
+    STACK_COLUMNS_BELOW,
+    columns_stacked,
+    wheel_units,
+    wrap_positions,
+)
 from battlebuddy.harvest.locate import load_harvest
 from battlebuddy.xai.loop import answer_ask, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
@@ -256,6 +261,7 @@ class BattleBuddyApp:
         )
 
         self._wrap_busy: set[int] = set()
+        self._columns_stacked: bool | None = None
         self.root.minsize(720, 560)
         self.root.geometry("1200x800")
         self._restore_window()
@@ -283,13 +289,19 @@ class BattleBuddyApp:
         tk = self.tk
         self._build_top_bar()
 
-        tk.Label(
-            self.root,
+        footer = tk.Frame(self.root, bg=_BG)
+        footer.pack(side="bottom", fill="x")
+        self.voice_footer = tk.Label(
+            footer,
             text=_voice_footer(),
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
-        ).pack(side="bottom", pady=8)
+            anchor="w",
+            justify="left",
+            wraplength=680,
+        )
+        self.voice_footer.pack(fill="x", padx=20, pady=(4, 6))
 
         body = tk.Frame(self.root, bg=_BG)
         body.pack(fill="both", expand=True)
@@ -317,6 +329,7 @@ class BattleBuddyApp:
         columns.columnconfigure(0, weight=1, uniform="col")
         columns.columnconfigure(2, weight=1, uniform="col")
         columns.rowconfigure(0, weight=1)
+        columns.rowconfigure(1, weight=1)
 
         left = tk.Frame(columns, bg=_BG)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 16), pady=8)
@@ -324,16 +337,26 @@ class BattleBuddyApp:
         rule.grid(row=0, column=1, sticky="ns", pady=16)
         right = tk.Frame(columns, bg=_BG)
         right.grid(row=0, column=2, sticky="nsew", padx=(16, 0), pady=8)
+        self._columns = columns
+        self._left_col = left
+        self._rule = rule
+        self._right_col = right
 
         self._build_left(left)
         self._build_databank(right)
         self._build_ask(right)
 
         self.page.bind("<Configure>", self._sync_page_scroll)
-        self.page_canvas.bind("<Configure>", self._size_page_window)
+        self.page_canvas.bind("<Configure>", self._on_page_canvas)
         left.bind("<Configure>", self._fit_left_wrap)
         right.bind("<Configure>", self._fit_right_wrap)
+        try:
+            self.root.bind("<Configure>", self._on_root_configure, add="+")
+        except Exception:
+            pass
         self._bind_app_wheel()
+        self._stack_columns(int(self.root.winfo_width() or 1200))
+        self._fit_footer(int(self.root.winfo_width() or 1200))
 
         self._refresh_list()
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
@@ -1184,6 +1207,97 @@ class BattleBuddyApp:
         if width:
             self.list_canvas.itemconfigure(self._list_window, width=width)
 
+    def _on_page_canvas(self, event: object) -> None:
+        self._size_page_window(event)
+        try:
+            width = int(self.root.winfo_width() or 0)
+        except Exception:
+            width = int(getattr(event, "width", 0) or 0)
+        self._stack_columns(width)
+        self._fit_footer(width)
+
+    def _on_root_configure(self, event: object) -> None:
+        widget = getattr(event, "widget", None)
+        if widget is not None and widget is not self.root:
+            return
+        width = int(getattr(event, "width", 0) or 0)
+        self._stack_columns(width)
+        self._fit_footer(width)
+
+    def _fit_footer(self, width: int) -> None:
+        label = getattr(self, "voice_footer", None)
+        if label is None or width < 80:
+            return
+        try:
+            label.config(wraplength=max(width - 48, 80))
+        except Exception:
+            return
+
+    def _stack_columns(self, width: int) -> None:
+        if width <= 1:
+            return
+        stacked = columns_stacked(width, limit=STACK_COLUMNS_BELOW)
+        if stacked == self._columns_stacked:
+            return
+        self._columns_stacked = stacked
+        columns = getattr(self, "_columns", None)
+        left = getattr(self, "_left_col", None)
+        right = getattr(self, "_right_col", None)
+        rule = getattr(self, "_rule", None)
+        if columns is None or left is None or right is None or rule is None:
+            return
+        try:
+            if stacked:
+                columns.columnconfigure(0, weight=1, uniform="")
+                columns.columnconfigure(1, weight=0, uniform="")
+                columns.columnconfigure(2, weight=0, uniform="")
+                columns.rowconfigure(0, weight=1)
+                columns.rowconfigure(1, weight=1)
+                rule.grid_remove()
+                left.grid(
+                    row=0,
+                    column=0,
+                    columnspan=3,
+                    sticky="nsew",
+                    padx=0,
+                    pady=(8, 4),
+                )
+                right.grid(
+                    row=1,
+                    column=0,
+                    columnspan=3,
+                    sticky="nsew",
+                    padx=0,
+                    pady=(4, 8),
+                )
+            else:
+                columns.columnconfigure(0, weight=1, uniform="col")
+                columns.columnconfigure(1, weight=0, uniform="")
+                columns.columnconfigure(2, weight=1, uniform="col")
+                columns.rowconfigure(0, weight=1)
+                columns.rowconfigure(1, weight=0)
+                left.grid(
+                    row=0,
+                    column=0,
+                    columnspan=1,
+                    sticky="nsew",
+                    padx=(0, 16),
+                    pady=8,
+                )
+                rule.grid(row=0, column=1, sticky="ns", pady=16)
+                right.grid(
+                    row=0,
+                    column=2,
+                    columnspan=1,
+                    sticky="nsew",
+                    padx=(16, 0),
+                    pady=8,
+                )
+        except Exception:
+            self._columns_stacked = None
+            return
+        self._sync_page_scroll()
+
     def _size_page_window(self, event: object) -> None:
         width = int(getattr(event, "width", 0) or 0)
         height = int(getattr(event, "height", 0) or 0)
@@ -1197,9 +1311,10 @@ class BattleBuddyApp:
         if height <= 0:
             self._sync_page_scroll()
             return
-        # Short viewports grow the page so the scrollbar reaches every control.
-        # Tall windows keep the two columns filling the viewport.
-        inner = max(need, height) if height < 640 else height
+        # Short or stacked viewports grow the page so the scrollbar reaches every control.
+        # Tall side-by-side windows keep the two columns filling the viewport.
+        stacked = bool(self._columns_stacked)
+        inner = max(need, height) if stacked or height < 640 else height
         self.page_canvas.itemconfigure(self._page_window, height=inner)
         self._sync_page_scroll()
 
@@ -1332,15 +1447,17 @@ class BattleBuddyApp:
         target = self._scroll_target(event)
         if target is None:
             return None
-        delta = int(getattr(event, "delta", 0) or 0)
-        num = int(getattr(event, "num", 0) or 0)
-        if num == 4 or delta > 0:
-            target.yview_scroll(-1, "units")
-            return "break"
-        if num == 5 or delta < 0:
-            target.yview_scroll(1, "units")
-            return "break"
-        return None
+        step = wheel_units(
+            getattr(event, "delta", 0),
+            getattr(event, "num", None),
+        )
+        if step == 0:
+            return None
+        try:
+            target.yview_scroll(step, "units")
+        except Exception:
+            return None
+        return "break"
 
     def _lock(self) -> None:
         line = self.entry.get().strip()

@@ -15,11 +15,24 @@ _SM_CXVIRTUALSCREEN = 78
 _SM_CYVIRTUALSCREEN = 79
 
 _user32: Any = None
+_POINT: Any = None
+_RECT: Any = None
+_MONITORINFO: Any = None
 if sys.platform == "win32":
     import ctypes
     from ctypes import wintypes
 
     _user32 = ctypes.windll.user32
+    _POINT = wintypes.POINT
+    _RECT = wintypes.RECT
+
+    class _MONITORINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("rcMonitor", wintypes.RECT),
+            ("rcWork", wintypes.RECT),
+            ("dwFlags", wintypes.DWORD),
+        ]
 
 
 def enable_dpi_awareness() -> None:
@@ -238,12 +251,9 @@ def _win_cursor() -> tuple[int, int] | None:
     import ctypes
     from ctypes import wintypes
 
-    class POINT(ctypes.Structure):
-        _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
-
     user32 = _user32
-    point = POINT()
-    user32.GetCursorPos.argtypes = [ctypes.POINTER(POINT)]
+    point = _POINT()
+    user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
     user32.GetCursorPos.restype = wintypes.BOOL
     if not user32.GetCursorPos(ctypes.byref(point)):
         return None
@@ -254,37 +264,18 @@ def _win_monitor() -> Rect | None:
     import ctypes
     from ctypes import wintypes
 
-    class POINT(ctypes.Structure):
-        _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
-
-    class RECT(ctypes.Structure):
-        _fields_ = [
-            ("left", wintypes.LONG),
-            ("top", wintypes.LONG),
-            ("right", wintypes.LONG),
-            ("bottom", wintypes.LONG),
-        ]
-
-    class MONITORINFO(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("rcMonitor", RECT),
-            ("rcWork", RECT),
-            ("dwFlags", wintypes.DWORD),
-        ]
-
     cursor = _win_cursor()
     if cursor is None:
         return None
     user32 = _user32
-    user32.MonitorFromPoint.argtypes = [POINT, wintypes.DWORD]
+    user32.MonitorFromPoint.argtypes = [_POINT, wintypes.DWORD]
     user32.MonitorFromPoint.restype = wintypes.HMONITOR
-    monitor = user32.MonitorFromPoint(POINT(cursor[0], cursor[1]), 2)
+    monitor = user32.MonitorFromPoint(_POINT(cursor[0], cursor[1]), 2)
     if not monitor:
         return None
-    info = MONITORINFO()
-    info.cbSize = ctypes.sizeof(MONITORINFO)
-    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
+    info = _MONITORINFO()
+    info.cbSize = ctypes.sizeof(_MONITORINFO)
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(_MONITORINFO)]
     user32.GetMonitorInfoW.restype = wintypes.BOOL
     if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
         return None
@@ -315,28 +306,12 @@ def _win_monitors() -> list[Rect] | None:
     import ctypes
     from ctypes import wintypes
 
-    class RECT(ctypes.Structure):
-        _fields_ = [
-            ("left", wintypes.LONG),
-            ("top", wintypes.LONG),
-            ("right", wintypes.LONG),
-            ("bottom", wintypes.LONG),
-        ]
-
-    class MONITORINFO(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("rcMonitor", RECT),
-            ("rcWork", RECT),
-            ("dwFlags", wintypes.DWORD),
-        ]
-
     user32 = _user32
     monitors: list[Rect] = []
 
     def _enum(hmonitor: int, _hdc: int, _lprect: object, _lparam: int) -> int:
-        info = MONITORINFO()
-        info.cbSize = ctypes.sizeof(MONITORINFO)
+        info = _MONITORINFO()
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
         if user32.GetMonitorInfoW(hmonitor, ctypes.byref(info)):
             box = info.rcMonitor
             width = int(box.right - box.left)
@@ -349,11 +324,11 @@ def _win_monitors() -> list[Rect] | None:
         wintypes.BOOL,
         wintypes.HMONITOR,
         wintypes.HDC,
-        ctypes.POINTER(RECT),
+        ctypes.POINTER(_RECT),
         wintypes.LPARAM,
     )
     callback = MONITORENUMPROC(_enum)
-    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(_MONITORINFO)]
     user32.GetMonitorInfoW.restype = wintypes.BOOL
     user32.EnumDisplayMonitors.argtypes = [
         wintypes.HDC,
@@ -371,17 +346,9 @@ def _window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     import ctypes
     from ctypes import wintypes
 
-    class RECT(ctypes.Structure):
-        _fields_ = [
-            ("left", wintypes.LONG),
-            ("top", wintypes.LONG),
-            ("right", wintypes.LONG),
-            ("bottom", wintypes.LONG),
-        ]
-
     user32 = _user32
-    rect = RECT()
-    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
+    rect = _RECT()
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(_RECT)]
     user32.GetWindowRect.restype = wintypes.BOOL
     target = _root_hwnd(hwnd)
     if not user32.GetWindowRect(target, ctypes.byref(rect)):
