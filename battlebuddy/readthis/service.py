@@ -82,7 +82,7 @@ class ReadAloud:
             listener.stop()
 
     def start_select(self) -> None:
-        """Dim the current monitor and wait for a drag."""
+        """Dim every connected monitor and wait for a drag."""
         if self._closed or self._tk is None or self._root is None:
             return
         self._cancel_work()

@@ -194,6 +194,12 @@ class AnswerTest(unittest.TestCase):
         self.assertIn('text="SNAP"', source)
         self.assertIn('text="SNAP BOX"', source)
         self.assertNotIn("superseded_by", source)
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SNAP BOX", readme)
+        self.assertIn("every connected monitor", readme)
+        self.assertIn("monitor under the pointer", readme)
 
 
 if __name__ == "__main__":

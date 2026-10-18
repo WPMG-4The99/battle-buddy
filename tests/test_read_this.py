@@ -28,7 +28,19 @@ from battlebuddy.readthis.hotkey import (
     parse_hotkey,
 )
 from battlebuddy.readthis.ocr import should_invert
-from battlebuddy.readthis.region import Rect, selection_rect
+from battlebuddy.readthis.region import (
+    Rect,
+    contains_point,
+    local_rect,
+    selection_rect,
+    union_rects,
+)
+from battlebuddy.readthis.screen import (
+    PER_MONITOR_AWARE_V2,
+    list_monitors,
+    overlay_layout,
+    virtual_desktop,
+)
 from battlebuddy.session.tier import load_tier, save_tier
 from battlebuddy.voice.tts import is_speaking, speak, stop_speaking
 
@@ -91,6 +103,109 @@ class RegionMathTest(unittest.TestCase):
         )
 
 
+class MultiMonitorMapTest(unittest.TestCase):
+    """Virtual-desktop coords. Mocked layouts. No Tk, no Win32."""
+
+    _LEFT = Rect(-1920, 0, 1920, 1080)
+    _PRIMARY = Rect(0, 0, 1920, 1080)
+    _WIDE = Rect(0, 0, 2560, 1440)
+    _ABOVE = Rect(0, -1080, 1920, 1080)
+    _QHD_LEFT = Rect(-2560, 0, 2560, 1440)
+
+    def test_virtual_desktop_includes_a_left_monitor(self) -> None:
+        desk = union_rects([self._LEFT, self._PRIMARY])
+        self.assertEqual(desk, Rect(-1920, 0, 3840, 1080))
+        self.assertTrue(contains_point(desk, -1, 10))
+        self.assertTrue(contains_point(desk, 0, 10))
+        self.assertFalse(contains_point(desk, 1920, 10))
+
+    def test_mixed_resolutions_and_a_monitor_above(self) -> None:
+        desk = union_rects([self._QHD_LEFT, self._PRIMARY])
+        self.assertEqual(desk, Rect(-2560, 0, 4480, 1440))
+        stacked = union_rects([self._ABOVE, self._PRIMARY])
+        self.assertEqual(stacked, Rect(0, -1080, 1920, 2160))
+
+    def test_cross_boundary_drag_maps_onto_both_overlays(self) -> None:
+        desk = union_rects([self._LEFT, self._WIDE])
+        rect = selection_rect(-80, 20, 120, 220, desk)
+        self.assertEqual(rect, Rect(-80, 20, 200, 200))
+        self.assertEqual(local_rect(rect, self._LEFT), (1840, 20, 1920, 220))
+        self.assertEqual(local_rect(rect, self._WIDE), (0, 20, 120, 220))
+
+    def test_box_on_the_left_monitor_stays_off_the_primary(self) -> None:
+        desk = union_rects([self._LEFT, self._PRIMARY])
+        rect = selection_rect(-1800, 40, -1400, 200, desk)
+        self.assertEqual(rect, Rect(-1800, 40, 400, 160))
+        self.assertEqual(local_rect(rect, self._LEFT), (120, 40, 520, 200))
+        self.assertIsNone(local_rect(rect, self._PRIMARY))
+
+    def test_overlay_layout_covers_every_given_monitor(self) -> None:
+        monitors = [self._QHD_LEFT, self._PRIMARY, self._ABOVE]
+        layers, desk = overlay_layout(monitors=monitors)
+        self.assertEqual(layers, monitors)
+        self.assertEqual(desk, union_rects(monitors))
+        self.assertEqual(desk.left, -2560)
+        self.assertEqual(desk.top, -1080)
+
+    def test_single_virtual_desktop_overlay_when_enum_is_empty(self) -> None:
+        desk = Rect(-1920, -1080, 3840, 2160)
+        with patch(
+            "battlebuddy.readthis.screen._platform_monitors",
+            return_value=[],
+        ), patch(
+            "battlebuddy.readthis.screen._platform_virtual_desktop",
+            return_value=desk,
+        ):
+            self.assertEqual(list_monitors(), [desk])
+            layers, clamp = overlay_layout()
+            self.assertEqual(layers, [desk])
+            self.assertEqual(clamp, desk)
+
+    def test_list_monitors_uses_the_enumerated_layout(self) -> None:
+        layout = [self._LEFT, self._WIDE]
+        with patch(
+            "battlebuddy.readthis.screen._platform_monitors",
+            return_value=layout,
+        ), patch(
+            "battlebuddy.readthis.screen._platform_virtual_desktop",
+            return_value=None,
+        ):
+            self.assertEqual(list_monitors(), layout)
+            self.assertEqual(virtual_desktop(), Rect(-1920, 0, 4480, 1440))
+            layers, desk = overlay_layout()
+            self.assertEqual(layers, layout)
+            self.assertEqual(desk, Rect(-1920, 0, 4480, 1440))
+
+    def test_capture_dicts_keep_virtual_desktop_origin(self) -> None:
+        rect = Rect(-2560, -200, 400, 300)
+        self.assertEqual(
+            rect.as_mss(),
+            {"left": -2560, "top": -200, "width": 400, "height": 300},
+        )
+        self.assertEqual(rect.as_bbox(), (-2560, -200, -2160, 100))
+
+    def test_overlay_uses_every_monitor_not_only_the_pointer(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "battlebuddy"
+            / "readthis"
+            / "overlay.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("overlay_layout", source)
+        self.assertNotIn("monitor_at_cursor", source)
+
+    def test_dpi_awareness_is_per_monitor(self) -> None:
+        self.assertEqual(PER_MONITOR_AWARE_V2, -4)
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "battlebuddy"
+            / "readthis"
+            / "screen.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SetProcessDpiAwarenessContext", source)
+        self.assertIn("PER_MONITOR_AWARE_V2", source)
+
+
 class HotkeyParseTest(unittest.TestCase):
     def test_default_ctrl_alt_r(self) -> None:
         mods, vk = parse_hotkey("ctrl+alt+r")
@@ -119,6 +234,9 @@ class ReadConfigTest(unittest.TestCase):
                 save_hotkey("Ctrl+Shift+R", home)
                 self.assertEqual(load_tier(home), "socratic")
                 self.assertEqual(load_region(home), Rect(4, 5, 20, 30))
+                save_region(Rect(-1920, 80, 240, 120), home)
+                self.assertEqual(load_region(home), Rect(-1920, 80, 240, 120))
+                self.assertEqual(load_tier(home), "socratic")
                 self.assertEqual(load_text(home), "The colony has grown.")
                 self.assertEqual(load_hotkey(home), "ctrl+shift+r")
 
@@ -179,6 +297,7 @@ class CaptureAndSpeechContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Ctrl+Alt+R", readme)
+        self.assertIn("every connected monitor", readme)
         self.assertIn("requirements-readthis.txt", readme)
 
 

@@ -125,7 +125,7 @@ class SnapAsk:
         ).start()
 
     def snap_box(self) -> None:
-        """Optional drag box, same OCR and answer as a full snap."""
+        """Dim every monitor, then drag a region. Same OCR and answer as SNAP."""
         if self._closed or self._tk is None or self._root is None:
             return
         self._cancel()
