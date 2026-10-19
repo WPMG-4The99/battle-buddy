@@ -32,7 +32,10 @@ from battlebuddy.reminders.parse import (
 CHAT_URL = "https://api.x.ai/v1/chat/completions"
 MODEL = "grok-4.6"
 CHAT_TIMEOUT = 20
+SEARCH_TIMEOUT = 12
 _HOST = "api.x.ai"
+_MAX_TOKENS = 800
+_MAX_ALLOWED_SITES = 5
 _MISS = (
     "nothing invented",
     "can't find that",
@@ -63,6 +66,21 @@ def api_key() -> str | None:
     """XAI_API_KEY from the environment. Empty or missing is offline."""
     raw = (os.environ.get("XAI_API_KEY") or "").strip()
     return raw or None
+
+
+def xai_model() -> str:
+    """BATTLEBUDDY_XAI_MODEL, or a current Grok default. No UI field."""
+    raw = (os.environ.get("BATTLEBUDDY_XAI_MODEL") or "").strip()
+    return raw or MODEL
+
+
+@dataclass(frozen=True)
+class ChatOut:
+    """Text plus optional live-search citations. Never includes the key."""
+
+    text: str | None
+    citations: tuple[str, ...] = ()
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,27 +218,85 @@ def ask_utterance(
 
 
 def chat(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, object]],
     *,
     key: str,
     timeout: float = CHAT_TIMEOUT,
     max_tokens: int = 200,
+    search_parameters: dict[str, object] | None = None,
 ) -> str | None:
     """POST api.x.ai chat completions. None on failure. Never logs the key."""
+    out = chat_out(
+        messages,
+        key=key,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        search_parameters=search_parameters,
+    )
+    return out.text
+
+
+def chat_out(
+    messages: list[dict[str, object]],
+    *,
+    key: str,
+    timeout: float = CHAT_TIMEOUT,
+    max_tokens: int = 200,
+    search_parameters: dict[str, object] | None = None,
+) -> ChatOut:
+    """Same POST as chat, plus citations when live search is on."""
     token = (key or "").strip()
     if not token or not messages:
-        return None
+        return ChatOut(text=None, error="no_key")
     if not _is_xai_url(CHAT_URL):
-        return None
-    cap = max(1, min(int(max_tokens), 200))
+        return ChatOut(text=None, error="bad_url")
+    cap = max(1, min(int(max_tokens), _MAX_TOKENS))
     payload: dict[str, object] = {
-        "model": MODEL,
+        "model": xai_model(),
         "messages": messages,
         "temperature": 0,
         "max_tokens": cap,
     }
+    if search_parameters:
+        payload["search_parameters"] = search_parameters
     body = _post_json(CHAT_URL, payload, token, timeout)
-    return _message_text(body)
+    if body is None:
+        return ChatOut(text=None, error="network")
+    return ChatOut(text=_message_text(body), citations=_citations(body))
+
+
+def web_search_parameters(
+    hosts: list[str],
+    *,
+    max_results: int = 5,
+) -> dict[str, object]:
+    """Restrict live search to this game's wiki hosts. Cap matches xAI's limit."""
+    allowed = _allowed_websites(hosts)
+    source: dict[str, object] = {"type": "web"}
+    if allowed:
+        source["allowed_websites"] = allowed
+    return {
+        "mode": "on",
+        "return_citations": True,
+        "max_search_results": max(1, min(int(max_results), 10)),
+        "sources": [source],
+    }
+
+
+def _allowed_websites(hosts: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in hosts:
+        host = (raw or "").strip().lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if not host or host in seen:
+            continue
+        seen.add(host)
+        out.append(host)
+        if len(out) >= _MAX_ALLOWED_SITES:
+            break
+    return out
 
 
 def _local_command(raw: str) -> bool:
@@ -296,7 +372,10 @@ def _post_json(
         with urlopen(req, timeout=timeout) as resp:
             raw = resp.read(200_000)
         return json.loads(raw.decode("utf-8", errors="replace"))
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        from battlebuddy.session.log import report
+
+        report("xAI chat failed", exc)
         return None
 
 
@@ -309,13 +388,74 @@ def _message_text(body: object) -> str | None:
         if isinstance(first, dict):
             message = first.get("message")
             if isinstance(message, dict):
-                content = message.get("content")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
+                text = _content_text(message.get("content"))
+                if text:
+                    return text
             text = first.get("text")
             if isinstance(text, str) and text.strip():
                 return text.strip()
     output = body.get("output_text")
     if isinstance(output, str) and output.strip():
         return output.strip()
+    return None
+
+
+def _content_text(content: object) -> str | None:
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if not isinstance(content, list):
+        return None
+    bits: list[str] = []
+    for part in content:
+        if isinstance(part, str) and part.strip():
+            bits.append(part.strip())
+            continue
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text") or part.get("content")
+        if isinstance(text, str) and text.strip():
+            bits.append(text.strip())
+    joined = "\n".join(bits).strip()
+    return joined or None
+
+
+def _citations(body: object) -> tuple[str, ...]:
+    if not isinstance(body, dict):
+        return ()
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: object) -> None:
+        url = _citation_url(raw)
+        if not url or url in seen:
+            return
+        seen.add(url)
+        found.append(url)
+
+    rows = body.get("citations")
+    if isinstance(rows, list):
+        for item in rows:
+            _add(item)
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                extra = message.get("citations")
+                if isinstance(extra, list):
+                    for item in extra:
+                        _add(item)
+    return tuple(found)
+
+
+def _citation_url(raw: object) -> str | None:
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text or None
+    if isinstance(raw, dict):
+        for key in ("url", "uri", "href"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return None
