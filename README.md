@@ -105,12 +105,22 @@ Same reminder loop as a [Hermes Desktop](https://hermes-agent.nousresearch.com/d
 hermes skills install wyldephyre/battle-buddy/skills/battle-buddy
 ```
 
-Jessica is not this app.
+Jessica is not this app. Consumer offline / local ASK does not need Hermes.
+
+**Cap-only Ask Jessica (branch `jessica-hermes`, DO NOT MERGE until Cap says):** Hermes SuperGrok OAuth (`xai-oauth`), not Zo. Cap owns Jessica soul in Hermes. Windows/PC steps: `docs/JESSICA-HERMES.md`. Thin skill: `skills/ask-jessica/`. If the Desktop SuperGrok OAuth card or `hermes auth add xai-oauth` is missing, ask Cap. No secrets in git.
+
+```text
+python -m battlebuddy ask jessica what holds the line tonight
+hermes skills install wyldephyre/battle-buddy/skills/ask-jessica
+```
 
 ### Repo map
 
 ```text
-skills/battle-buddy/SKILL.md   Hermes skill
+skills/battle-buddy/SKILL.md   Hermes skill (consumer reminder loop)
+skills/ask-jessica/SKILL.md    Cap Ask Jessica via Hermes xai-oauth
+docs/JESSICA-HERMES.md         Windows/PC Cap setup (not Zo)
+battlebuddy/jessica/           thin Ask Jessica → Hermes SuperGrok OAuth
 battlebuddy/memory/            local JSON reminders + SQLite catalog
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback

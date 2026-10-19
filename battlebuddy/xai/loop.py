@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from battlebuddy.databank.reason import PAGE_CAP, _is_ask_extract, present_ask
 from battlebuddy.databank.search import page_texts_for_hits
 from battlebuddy.databank.store import DatabankStore
+from battlebuddy.jessica.ask import handle_ask_jessica, parse_ask_jessica
 from battlebuddy.reminders.commands import ActionResult, run_line, unknown_result
 from battlebuddy.reminders.engine import ReminderEngine
 from battlebuddy.memory.catalog import is_catalog_command
@@ -89,6 +90,9 @@ def reason_utterance(
         )
     if _local_command(raw):
         return Reasoned(kind="command", line=raw)
+    jessica_q = parse_ask_jessica(raw)
+    if jessica_q is not None:
+        return Reasoned(kind="ask_jessica", result=handle_ask_jessica(jessica_q))
     key = api_key()
     if not key:
         return Reasoned(kind="unknown", result=unknown_result())
