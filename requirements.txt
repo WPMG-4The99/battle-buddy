@@ -3,3 +3,8 @@
 # TTS optional: Windows SAPI, macOS say, Linux espeak-ng.
 # STT optional: Windows Speech Recognition, or Sphinx if already installed.
 # UI: tkinter (included with python.org Windows; Linux may need python3-tk).
+#
+# Optional Read This (region OCR). The app runs without these.
+#   pip install -r requirements-readthis.txt
+# mss grabs the box. Pillow is the ImageGrab fallback and the 2x prep.
+# winsdk is Windows.Media.Ocr. pytesseract is the fallback (needs the Tesseract binary).
