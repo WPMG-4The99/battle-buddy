@@ -38,6 +38,12 @@ python -m battlebuddy remind me in 1 minute to check food stores
 
 Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m battlebuddy list` still shows it.
 
+## Overlay
+
+**Ctrl+4**, the **Overlay** menu, or the tray icon opens a small always-on-top box. It lists every active timer and the live text from this window. Drag it onto any monitor. That spot is remembered for that monitor. The opacity slider runs from 10% to 100% and stays between launches. Below 50%, **Click through** can pass clicks to the game. Turn that off from the Overlay menu or the tray icon. The box does not dim the screen. Ctrl+1, Ctrl+2, and Ctrl+3 stay free.
+
+Change the hotkey with `BATTLEBUDDY_OVERLAY_HOTKEY=ctrl+shift+o`, or `"hotkey"` inside the `overlay` object in `session.json`.
+
 ## Demo
 
 PHYRE on a reel, no login: [watch the share page](https://reporeel-marlandoj.zocomputer.io/v/orZ8RaBQ). Reel by Marlando ([RepoReel](https://github.com/marlandoj/reporeel)). For the forgotten 99%. Oorah.
@@ -75,7 +81,7 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Overlay opacity, click-through, and per-monitor position stay in `session.json` under `overlay`. Not committed.
 
 ```text
 python -m battlebuddy note granary is low

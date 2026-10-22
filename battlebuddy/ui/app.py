@@ -40,6 +40,8 @@ from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
+from battlebuddy.ui.hud import HudOverlay
+from battlebuddy.ui.overlay_win import enable_dpi_awareness
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
 from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
@@ -206,6 +208,7 @@ def run_ui() -> int:
         print("No tkinter on this box. Typed path still works:")
         print("  python -m battlebuddy remind me in 1 minute to check food stores")
         return 1
+    enable_dpi_awareness()
     app = BattleBuddyApp(tk)
     app.run()
     return 0
@@ -238,6 +241,7 @@ class BattleBuddyApp:
 
         self.root.minsize(1000, 640)
         self.root.geometry("1200x800")
+        self._hud: HudOverlay | None = None
 
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -245,6 +249,11 @@ class BattleBuddyApp:
         self.root.after(_POLL_MS, self._tick)
 
     def run(self) -> None:
+        if self._hud is not None:
+            try:
+                self._hud.start()
+            except Exception:
+                pass
         self.root.mainloop()
 
     def _build(self) -> None:
@@ -279,6 +288,7 @@ class BattleBuddyApp:
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
+        self._hud = HudOverlay(self.tk, self.root, self.engine, self)
 
     def _build_left(self, parent: object) -> None:
         """Reminders stay on the left. ASK output never lands here."""
@@ -1627,6 +1637,11 @@ class BattleBuddyApp:
             return
 
     def _on_close(self) -> None:
+        if self._hud is not None:
+            try:
+                self._hud.shutdown()
+            except Exception:
+                pass
         self._clear_drafts()
         try:
             stop_bundled_server()
