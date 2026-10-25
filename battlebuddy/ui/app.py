@@ -1333,10 +1333,10 @@ class BattleBuddyApp:
         if height <= 0:
             self._sync_page_scroll()
             return
-        # Short or stacked viewports grow the page so the scrollbar reaches every control.
-        # Tall side-by-side windows keep the two columns filling the viewport.
-        stacked = bool(self._columns_stacked)
-        inner = max(need, height) if stacked or height < 640 else height
+        # The page is never shorter than its content, so the scrollbar reaches every
+        # control (side-by-side too, e.g. the default 1200x800 window). When the
+        # content is shorter than the viewport the two columns still fill it.
+        inner = max(need, height)
         self.page_canvas.itemconfigure(self._page_window, height=inner)
         self._sync_page_scroll()
 

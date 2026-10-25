@@ -174,7 +174,9 @@ class UiLayoutLiveTest(unittest.TestCase):
             self.assertLessEqual(footer_bottom, win_bottom + 8)
             self.assertGreaterEqual(footer_top, int(app.page_canvas.winfo_rooty()))
             pos, _height = wrap_positions([200, 200, 200], 360, gap=8, row_height=40)
-            self.assertEqual(pos[2][1], 40)
+            # 200px widgets never pair up in 360px (200 + 8 + 200 > 360), so each wraps to
+            # its own row: y = 0, 40, 80. The old expectation (40) assumed two per row.
+            self.assertEqual(pos[2][1], 80)
         finally:
             app._on_close()
         saved = load_window(self.home)
