@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -40,6 +42,14 @@ _PATCH_BODY = (
 )
 _START_Q = "how do I start spear production?"
 _START_Q_BARE = "how do I start spear production"
+
+
+def _patch_no_live_wiki() -> ExitStack:
+    """Keep ask_or_hunt on disk. Saved hoodedhorse URLs still open a live hunt."""
+    stack = ExitStack()
+    stack.enter_context(patch("battlebuddy.databank.wiki.search_wiki_hits", return_value=[]))
+    stack.enter_context(patch("battlebuddy.databank.wiki.search_wiki_urls", return_value=[]))
+    return stack
 
 
 def _long_burgage_body() -> str:
@@ -455,6 +465,10 @@ class SearchFolderTest(unittest.TestCase):
 
 
 class StartPathAskTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -566,6 +580,10 @@ class StartPathAskTest(unittest.TestCase):
 
 
 class RealWikiStartPathTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -779,13 +797,46 @@ class AskUiTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
         self._old_home = os.environ.get("BATTLEBUDDY_HOME")
+        self._old_user_home = os.environ.get("HOME")
+        self._old_key = os.environ.get("XAI_API_KEY")
         os.environ["BATTLEBUDDY_HOME"] = str(self.home)
+        os.environ["HOME"] = str(self.home)
+        os.environ.pop("XAI_API_KEY", None)
+        stack = ExitStack()
+        stack.enter_context(patch("battlebuddy.ui.app.speak_async", return_value=None))
+        stack.enter_context(patch("battlebuddy.ui.app.start_bundled_server"))
+        stack.enter_context(patch("battlebuddy.ui.app.should_hunt", return_value=False))
+        stack.enter_context(patch("battlebuddy.ui.app.ask_or_hunt", side_effect=ask_pages))
+        stack.enter_context(
+            patch.object(ui_app.BattleBuddyApp, "_warm_bundled_llm", lambda self: None)
+        )
+        stack.enter_context(
+            patch.object(
+                ui_app.BattleBuddyApp, "_start_game_scan", lambda self, *a, **k: None
+            )
+        )
+        stack.enter_context(
+            patch.object(ui_app.BattleBuddyApp, "_start_wiki_seed", lambda self, _game: None)
+        )
+        stack.enter_context(
+            patch.object(ui_app.BattleBuddyApp, "_maybe_unsolicited_miss", lambda self: None)
+        )
+        stack.enter_context(patch.object(ui_app.BattleBuddyApp, "_tick", lambda self: None))
+        self.addCleanup(stack.close)
 
     def tearDown(self) -> None:
         if self._old_home is None:
             os.environ.pop("BATTLEBUDDY_HOME", None)
         else:
             os.environ["BATTLEBUDDY_HOME"] = self._old_home
+        if self._old_user_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self._old_user_home
+        if self._old_key is None:
+            os.environ.pop("XAI_API_KEY", None)
+        else:
+            os.environ["XAI_API_KEY"] = self._old_key
 
     def _app(self):
         try:
@@ -801,17 +852,31 @@ class AskUiTest(unittest.TestCase):
         app.root.withdraw()
         return app
 
+    def _settle(self, app) -> None:
+        """Pump Tk until the ASK worker writes the pane. Read after, not mid-hunt."""
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                app.root.update()
+            except Exception:
+                break
+            if not getattr(app, "_asking", False):
+                return
+            time.sleep(0.02)
+
     def test_empty_folder_and_clears_box_on_success(self) -> None:
         app = self._app()
         try:
             self.assertEqual(app.ask_entry.get(), "")
             app.ask_entry.insert(0, "where is food")
             app._ask()
+            self._settle(app)
             out = app.ask_out.get("1.0", "end-1c")
             self.assertIn("ADD / FETCH", out)
             self.assertEqual(app.ask_entry.get(), "")
             app.ask_entry.insert(0, "   ")
             app._ask()
+            self._settle(app)
             self.assertEqual(app.ask_entry.get(), "   ")
             self.assertIn("Type a question", app.ask_out.get("1.0", "end-1c"))
         finally:
@@ -829,11 +894,13 @@ class AskUiTest(unittest.TestCase):
         try:
             app.ask_entry.insert(0, "where is the granary")
             app._ask()
+            self._settle(app)
             out = app.ask_out.get("1.0", "end-1c").lower()
             self.assertIn("granary", out)
             self.assertEqual(app.ask_entry.get(), "")
             app.ask_entry.insert(0, "nuclear reactor core")
             app._ask()
+            self._settle(app)
             miss = app.ask_out.get("1.0", "end-1c")
             self.assertIn("Nothing invented", miss)
             self.assertNotIn("reactor", miss.lower())
@@ -848,6 +915,7 @@ class AskUiTest(unittest.TestCase):
                 ask_pages(app.databank, app._game_name, app.ask_entry.get())
             )
             app._ask()
+            self._settle(app)
             self.assertIn("ADD / FETCH", expected)
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
             self.assertNotEqual(str(app.status.cget("text")), expected)
@@ -869,6 +937,7 @@ class AskUiTest(unittest.TestCase):
                 ask_pages(app.databank, app._game_name, app.ask_entry.get())
             )
             app._ask()
+            self._settle(app)
             self.assertIn("granary", expected.lower())
             self.assertEqual(app.ask_out.get("1.0", "end-1c"), expected)
             self.assertNotEqual(str(app.status.cget("text")), expected)
@@ -888,6 +957,7 @@ class AskUiTest(unittest.TestCase):
         try:
             app.ask_entry.insert(0, "How do I start a spear production?")
             app._ask()
+            self._settle(app)
             miss = app.ask_out.get("1.0", "end-1c")
             self.assertIn("Nothing invented", miss)
             self.assertNotIn("ale", miss.lower())
@@ -905,6 +975,7 @@ class AskUiTest(unittest.TestCase):
         try:
             app.ask_entry.insert(0, "How do I start a spear production?")
             app._ask()
+            self._settle(app)
             hit = app.ask_out.get("1.0", "end-1c").lower()
             self.assertIn("spear", hit)
         finally:
@@ -927,6 +998,7 @@ class AskUiTest(unittest.TestCase):
             self.assertEqual(app._game_name, "Manor Lords")
             app.ask_entry.insert(0, "How do I start a spear production?")
             app._ask()
+            self._settle(app)
             out = app.ask_out.get("1.0", "end-1c")
             first = out.splitlines()[0].lower() if out else ""
             self.assertIn("blacksmith", first)
@@ -948,6 +1020,7 @@ class AskUiTest(unittest.TestCase):
             app._start_wiki_seed = lambda _game: None  # type: ignore[method-assign]
             app.ask_entry.insert(0, "where is the granary")
             app._ask()
+            self._settle(app)
             hit = app.ask_out.get("1.0", "end-1c")
             reminder = str(app.status.cget("text"))
             self.assertIn("granary", hit.lower())
@@ -1002,6 +1075,10 @@ _BYGGNADER = "Byggnader. Buildings TOC. Family. People. Se även fiskarstuga."
 
 
 class TaxHowToAskTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self, *, manor: bool = True) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -1116,6 +1193,10 @@ class TaxHowToAskTest(unittest.TestCase):
 class DuplicateBuildingsTaxTest(unittest.TestCase):
     """Real-disk shape: two Buildings titles. Short infobox sorts first."""
 
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     _TITLE = "Buildings - Manor Lords Official Wiki"
     _SHORT = (
         "Buildings infobox. Burgage plot. Marketplace. Granary. "
@@ -1204,6 +1285,10 @@ _GAME_SETUP = (
 
 
 class DefeatRulerAskTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self, *, faq_claim: bool = True) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -1348,6 +1433,10 @@ _FAQ_LIVESTOCK = (
 
 
 class LivestockHowToAskTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self, *, pen: bool = True, trader: bool = True) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -1531,6 +1620,10 @@ _PACK_SPOKEN = (
 
 
 class PackRouteHowToAskTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._wiki = _patch_no_live_wiki()
+        self.addCleanup(self._wiki.close)
+
     def _store(self, *, faq_pack: bool = True, buildings_pack: bool = True) -> DatabankStore:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

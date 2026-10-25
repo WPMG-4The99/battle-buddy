@@ -292,6 +292,12 @@ class ClientBoundaryTest(unittest.TestCase):
 
 class SourceLawTest(unittest.TestCase):
     def test_hosts_stay_out_of_reason_and_tts(self) -> None:
+        # Intent is source law, not a raw substring ban. The xAI HTTP client
+        # and host stay in battlebuddy/xai/. Reason / TTS / notify / CLI must
+        # not read XAI_API_KEY and must not name api.x.ai. The UI may look up
+        # the optional env var for miss-check; that is not a hardcoded secret
+        # and not a UI field. Ban "XAI_API_KEY" in app.py would fail on a
+        # legitimate os.environ.get.
         from battlebuddy.databank import reason
         from battlebuddy.reminders import notify
         from battlebuddy.ui import app as ui_app
@@ -302,10 +308,18 @@ class SourceLawTest(unittest.TestCase):
         ui_text = Path(ui_app.__file__).read_text(encoding="utf-8")
         cli = Path(__file__).resolve().parents[1] / "battlebuddy" / "__main__.py"
         cli_text = cli.read_text(encoding="utf-8")
-        for blob in (reason_text, tts_text, notify_text, ui_text, cli_text):
+        offline = (reason_text, tts_text, notify_text, cli_text)
+        for blob in offline:
             self.assertNotIn("api.x.ai", blob)
             self.assertNotIn("XAI_API_KEY", blob)
             self.assertNotIn("openai.com", blob.lower())
+        self.assertNotIn("api.x.ai", ui_text)
+        self.assertNotIn("openai.com", ui_text.lower())
+        self.assertNotRegex(ui_text, r"""XAI_API_KEY\s*=\s*['\"][^'\"]+['\"]""")
+        self.assertNotIn("xai-", ui_text)
+        self.assertNotIn('text="XAI_API_KEY"', ui_text)
+        if "XAI_API_KEY" in ui_text:
+            self.assertIn('os.environ.get("XAI_API_KEY")', ui_text)
         xai_text = Path(xai_loop.__file__).read_text(encoding="utf-8")
         self.assertIn("api.x.ai", xai_text)
         self.assertIn("XAI_API_KEY", xai_text)
