@@ -56,6 +56,7 @@ class OfflineYardTest(unittest.TestCase):
 
     def test_no_key_is_missing(self) -> None:
         self.assertIsNone(api_key())
+        self.fail("throwaway red-check")
 
     def test_clean_remind_still_locks(self) -> None:
         result = handle_line(self.engine, _CANON_REMIND)
