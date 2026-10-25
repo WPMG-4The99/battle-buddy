@@ -38,9 +38,37 @@ python -m battlebuddy remind me in 1 minute to check food stores
 
 Stay in that window. It confirms. It FIREs in one minute. Restart and `python -m battlebuddy list` still shows it.
 
+## Read This
+
+**Ctrl+1** dims every connected monitor. Drag a box over on-screen text on any screen, including across a boundary (a Stellaris event, a quest, a tooltip). Release. Battle Buddy reads it with the same local TTS. No cloud. No account.
+
+Esc cancels the box on all monitors at once. **Ctrl+3** or **STOP TALKING** (always on the top bar, even in a short window) kills the voice and undims an active box. Safe to press when nothing is speaking. Esc while it is speaking still stops the voice. **READ THIS**, **READ AGAIN**, and **REPEAT LAST** sit together and wrap on a narrow column. **SCAN**, **SNAP**, and **SNAP BOX** wrap as their own row. **READ AGAIN** grabs that same box again, even when it lives on a side monitor. **REPEAT LAST** speaks the last text again. The main page scrolls when the window is shorter than the controls. Last size and position land in `session.json`.
+
+Change the hotkey with `BATTLEBUDDY_READ_HOTKEY=ctrl+shift+r`, or add `"read_hotkey": "ctrl+shift+r"` in `session.json` under the Battle Buddy home folder. Other session keys stay put.
+
+Capture and OCR are optional extras. The rest of the app runs without them.
+
+```text
+pip install -r requirements-readthis.txt
+```
+
+Windows OCR is the default. `winsdk` is used when that package imports. When it does not (no wheel for this Python), Battle Buddy calls the same Windows.Media.Ocr engine through Windows PowerShell. No compiler. Tesseract is the fallback (`pytesseract` plus the Tesseract binary on PATH). The grab prefers `mss` and falls back to Pillow. Each read is saved as a note so ASK can search it. Set `BATTLEBUDDY_SAVE_READS=0` to skip the note.
+
+## Snap & Ask
+
+**Ctrl+2** dims every connected monitor. Drag a box. Release. Battle Buddy OCRs that region, says **Go ahead**, and listens. Status shows **Listening…**. Speak a question. Silence, **Ctrl+2**, or Enter ends the listen. It answers from the snapped text plus this game's notes and databank, then speaks the answer. It does not talk before you ask.
+
+If it hears nothing: **Didn't catch that**, then a typed box with focus. If the mic is off: **Mic is off. Type it.** and the same box. Enter submits a typed question.
+
+**SNAP** grabs the full monitor under the pointer, then the same listen → answer loop. **SNAP BOX** is the same drag-box path as Ctrl+2. Esc or **Ctrl+3** cancels the overlay, the listen, or speech. Failures are spoken and land in `%USERPROFILE%\.battlebuddy\battlebuddy.log`.
+
+Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The snap is stored as a fact sourced `snap` for that game only. Change the hotkey with `BATTLEBUDDY_SNAP_HOTKEY` or `"snap_hotkey"` in `session.json`. Stop Talking is `BATTLEBUDDY_STOP_HOTKEY` or `"stop_hotkey"`.
+
+Brain local uses the sidecar when it is up, and the on-screen text when it is not. Brain Grok sends the text only. The image stays on the box unless `BATTLEBUDDY_SNAP_SEND_IMAGE=1`.
+
 ## Overlay
 
-**Ctrl+4**, the **Overlay** menu, or the tray icon opens a small always-on-top box. It lists every active timer and the live text from this window. Drag it onto any monitor. That spot is remembered for that monitor. The opacity slider runs from 10% to 100% and stays between launches. Below 50%, **Click through** can pass clicks to the game. Turn that off from the Overlay menu or the tray icon. The box does not dim the screen. Ctrl+1, Ctrl+2, and Ctrl+3 stay free.
+**Ctrl+4**, the **Overlay** menu, or the tray icon opens a small always-on-top box. It lists every active timer and the live text from this window. Drag it onto any monitor. That spot is remembered for that monitor. The opacity slider runs from 10% to 100% and stays between launches. Below 50%, **Click through** can pass clicks to the game. Turn that off from the Overlay menu or the tray icon. The box does not dim the screen. Ctrl+1 (Read This), Ctrl+2 (Snap & Ask), and Ctrl+3 (Stop Talking) keep their own jobs.
 
 Change the hotkey with `BATTLEBUDDY_OVERLAY_HOTKEY=ctrl+shift+o`, or `"hotkey"` inside the `overlay` object in `session.json`.
 
@@ -81,7 +109,7 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Overlay opacity, click-through, and per-monitor position stay in `session.json` under `overlay`. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Overlay opacity, click-through, and per-monitor position stay in `session.json` under `overlay`. Failures append to `battlebuddy.log`. Not committed.
 
 ```text
 python -m battlebuddy note granary is low
@@ -120,6 +148,8 @@ skills/battle-buddy/SKILL.md   Hermes skill
 battlebuddy/memory/            local JSON reminders + SQLite catalog
 battlebuddy/reminders/         schedule, fire, list, clear, snooze
 battlebuddy/voice/             local TTS / STT, typed fallback
+battlebuddy/readthis/          region grab, local OCR, read aloud
+battlebuddy/snap/              Snap & Ask. Monitor grab, sourced snap fact
 battlebuddy/game_detect/       local process SCAN. No Steam API.
 battlebuddy/databank/          public wiki GET, local ASK
 battlebuddy/xai/               optional Grok map/compile (env key only)

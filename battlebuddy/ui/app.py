@@ -31,10 +31,20 @@ from battlebuddy.session.tier import (
     TIER_SOCRATIC,
     load_brain,
     load_tier,
+    load_window,
+    parse_tk_geometry,
     save_tier,
+    save_window,
+    window_geometry,
+)
+from battlebuddy.ui.layout import (
+    STACK_COLUMNS_BELOW,
+    columns_stacked,
+    wheel_units,
+    wrap_positions,
 )
 from battlebuddy.harvest.locate import load_harvest
-from battlebuddy.xai.loop import answer_ask, reason_utterance
+from battlebuddy.xai.loop import answer_ask, api_key, reason_utterance
 from battlebuddy.reminders.engine import STATUS_PENDING, Reminder, ReminderEngine
 from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
@@ -42,9 +52,13 @@ from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.ui.hud import HudOverlay
 from battlebuddy.ui.overlay_win import enable_dpi_awareness
+from battlebuddy.readthis.config import load_stop_hotkey, stop_hotkey_label
+from battlebuddy.readthis.listen import STOP_HOTKEY_ID, HotkeyListener
+from battlebuddy.readthis.service import ReadAloud
+from battlebuddy.snap.service import SnapAsk
 from battlebuddy.voice.stt import listen_once, stt_available
 from battlebuddy.voice.tick import play_ticks_async
-from battlebuddy.voice.tts import speak_async, spoken_line, tts_available
+from battlebuddy.voice.tts import speak_async, spoken_line, stop_speaking, tts_available
 
 _BG = "#0B0B0B"
 _GOLD = "#E6C35C"
@@ -67,6 +81,9 @@ _CLOCK_FONT = ("Arial", 40, "bold")
 _TITLE_FONT = ("Arial", 30, "bold")
 _BODY_FONT = ("Arial", 16)
 _HINT_FONT = ("Arial", 14)
+_MIN_WIDTH = 720
+_MIN_HEIGHT = 560
+_DEFAULT_GEOMETRY = "1200x800"
 _WAR_KINDS: tuple[tuple[str, str], ...] = (
     ("Place", "place"),
     ("Trap", "trap"),
@@ -202,6 +219,14 @@ def _voice_footer() -> str:
 
 
 def run_ui() -> int:
+    from battlebuddy.readthis.screen import enable_dpi_awareness
+    from battlebuddy.session.log import report, setup_logging
+
+    try:
+        setup_logging()
+    except Exception:
+        pass
+    enable_dpi_awareness()
     try:
         import tkinter as tk
     except ImportError:
@@ -211,6 +236,12 @@ def run_ui() -> int:
     enable_dpi_awareness()
     app = BattleBuddyApp(tk)
     app.run()
+    try:
+        app = BattleBuddyApp(tk)
+        app.run()
+    except Exception as exc:
+        report("UI crashed", exc)
+        raise
     return 0
 
 
@@ -238,12 +269,28 @@ class BattleBuddyApp:
         self._fetching = False
         self._asking = False
         self._seed_started: set[str] = set()
+        self.reader = ReadAloud(self._read_status, lambda: self._game_name, self._read_saved)
+        self.snap = SnapAsk(
+            self._read_status,
+            lambda: self._game_name,
+            lambda: self.databank,
+        )
 
-        self.root.minsize(1000, 640)
+        self._wrap_busy: set[int] = set()
+        self._columns_stacked: bool | None = None
+        self._stop_listener: HotkeyListener | None = None
+        self.root.minsize(720, 560)
         self.root.geometry("1200x800")
         self._hud: HudOverlay | None = None
+        self._restore_window()
 
         self._build()
+        self.reader.bind_ui(self.tk, self.root)
+        self.snap.bind_ui(self.tk, self.root)
+        try:
+            self.read_line.config(text=self.reader.hint)
+        except Exception:
+            pass
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._warm_bundled_llm, daemon=True).start()
         self.root.after(_POLL_MS, self._tick)
@@ -254,24 +301,59 @@ class BattleBuddyApp:
                 self._hud.start()
             except Exception:
                 pass
+        try:
+            self.reader.start_hotkey()
+            self.snap.start_hotkey()
+            self._start_stop_hotkey()
+        except Exception:
+            pass
         self.root.mainloop()
 
     def _build(self) -> None:
         tk = self.tk
+        self._build_top_bar()
 
-        tk.Label(
-            self.root,
+        footer = tk.Frame(self.root, bg=_BG)
+        footer.pack(side="bottom", fill="x")
+        self.voice_footer = tk.Label(
+            footer,
             text=_voice_footer(),
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
-        ).pack(side="bottom", pady=8)
+            anchor="w",
+            justify="left",
+            wraplength=680,
+        )
+        self.voice_footer.pack(fill="x", padx=20, pady=(4, 6))
 
-        columns = tk.Frame(self.root, bg=_BG)
+        body = tk.Frame(self.root, bg=_BG)
+        body.pack(fill="both", expand=True)
+        self.page_scroll = tk.Scrollbar(body, orient="vertical")
+        self.page_canvas = tk.Canvas(
+            body,
+            bg=_BG,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.page_scroll.config(command=self.page_canvas.yview)
+        self.page_canvas.config(yscrollcommand=self.page_scroll.set)
+        self.page_scroll.pack(side="right", fill="y")
+        self.page_canvas.pack(side="left", fill="both", expand=True)
+
+        self.page = tk.Frame(self.page_canvas, bg=_BG)
+        self._page_window = self.page_canvas.create_window(
+            (0, 0),
+            window=self.page,
+            anchor="nw",
+        )
+
+        columns = tk.Frame(self.page, bg=_BG)
         columns.pack(fill="both", expand=True, padx=20, pady=(8, 4))
         columns.columnconfigure(0, weight=1, uniform="col")
         columns.columnconfigure(2, weight=1, uniform="col")
         columns.rowconfigure(0, weight=1)
+        columns.rowconfigure(1, weight=1)
 
         left = tk.Frame(columns, bg=_BG)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 16), pady=8)
@@ -279,16 +361,60 @@ class BattleBuddyApp:
         rule.grid(row=0, column=1, sticky="ns", pady=16)
         right = tk.Frame(columns, bg=_BG)
         right.grid(row=0, column=2, sticky="nsew", padx=(16, 0), pady=8)
+        self._columns = columns
+        self._left_col = left
+        self._rule = rule
+        self._right_col = right
 
         self._build_left(left)
         self._build_databank(right)
         self._build_ask(right)
+
+        self.page.bind("<Configure>", self._sync_page_scroll)
+        self.page_canvas.bind("<Configure>", self._on_page_canvas)
+        left.bind("<Configure>", self._fit_left_wrap)
+        right.bind("<Configure>", self._fit_right_wrap)
+        try:
+            self.root.bind("<Configure>", self._on_root_configure, add="+")
+        except Exception:
+            pass
+        self._bind_app_wheel()
+        self._stack_columns(int(self.root.winfo_width() or 1200))
+        self._fit_footer(int(self.root.winfo_width() or 1200))
 
         self._refresh_list()
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
         self._hud = HudOverlay(self.tk, self.root, self.engine, self)
+
+    def _build_top_bar(self) -> None:
+        """STOP TALKING stays on screen. It is not inside the scroll body."""
+        tk = self.tk
+        bar = tk.Frame(self.root, bg=_BG)
+        bar.pack(side="top", fill="x", padx=20, pady=(6, 0))
+        self.stop_talk_btn = tk.Button(
+            bar,
+            text="STOP TALKING",
+            font=("Arial", 14, "bold"),
+            bg=_SCARLET,
+            fg=_FG,
+            activebackground="#E03A54",
+            activeforeground=_FG,
+            relief="flat",
+            cursor="hand2",
+            command=self._stop_talking,
+        )
+        self.stop_talk_btn.pack(side="left", ipadx=12, ipady=6)
+        self.stop_hotkey_line = tk.Label(
+            bar,
+            text=stop_hotkey_label(),
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+        )
+        self.stop_hotkey_line.pack(side="left", padx=(12, 0))
 
     def _build_left(self, parent: object) -> None:
         """Reminders stay on the left. ASK output never lands here."""
@@ -324,19 +450,19 @@ class BattleBuddyApp:
             bg=_BG,
         ).pack(pady=(4, 8))
 
-        game_row = tk.Frame(parent, bg=_BG)
-        game_row.pack(fill="x", pady=(0, 10))
         self.game_line = tk.Label(
-            game_row,
+            parent,
             text=status_line(None),
             font=("Arial", 12),
             fg=_MUTED,
             bg=_BG,
             anchor="w",
         )
-        self.game_line.pack(side="left", fill="x", expand=True)
+        self.game_line.pack(fill="x", pady=(0, 6))
+        scan_row = tk.Frame(parent, bg=_BG)
+        scan_row.pack(fill="x", pady=(0, 8))
         self.scan_btn = tk.Button(
-            game_row,
+            scan_row,
             text="SCAN",
             font=("Arial", 16, "bold"),
             bg=_BTN_DARK,
@@ -347,7 +473,33 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._scan_now,
         )
-        self.scan_btn.pack(side="right", ipadx=16, ipady=10)
+        self.snap_btn = tk.Button(
+            scan_row,
+            text="SNAP",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._snap_monitor,
+        )
+        self.snap_box_btn = tk.Button(
+            scan_row,
+            text="SNAP BOX",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._snap_box,
+        )
+        for btn in (self.scan_btn, self.snap_btn, self.snap_box_btn):
+            btn.config(padx=10, pady=8)
+        self._bind_wrap_row(scan_row)
         self.seen_line = tk.Label(
             parent,
             text=seen_on_disk_line(self.catalog.list_games(), self.catalog.list_notes()),
@@ -359,6 +511,17 @@ class BattleBuddyApp:
             justify="left",
         )
         self.seen_line.pack(fill="x", pady=(4, 8))
+        self.read_line = tk.Label(
+            parent,
+            text="Read This · Ctrl+1",
+            font=("Arial", 12),
+            fg=_MUTED,
+            bg=_BG,
+            anchor="w",
+            wraplength=480,
+            justify="left",
+        )
+        self.read_line.pack(fill="x", pady=(0, 6))
 
         self._field_caption(parent, "Reminder", "Lock a time reminder here")
 
@@ -382,13 +545,6 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._lock,
         )
-        self.lock_btn.pack(
-            side="left",
-            expand=True,
-            fill="x",
-            ipady=10,
-            padx=(0, 8),
-        )
         if speak_on:
             self.speak_btn = tk.Button(
                 actions,
@@ -401,13 +557,6 @@ class BattleBuddyApp:
                 relief="flat",
                 cursor="hand2",
                 command=self._speak,
-            )
-            self.speak_btn.pack(
-                side="left",
-                expand=True,
-                fill="x",
-                ipady=10,
-                padx=(0, 8),
             )
         else:
             self.speak_btn = None
@@ -423,7 +572,11 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._toggle_hygiene,
         )
-        self.hygiene_btn.pack(side="left", expand=True, fill="x", ipady=10)
+        for btn in (self.lock_btn, self.speak_btn, self.hygiene_btn):
+            if btn is None:
+                continue
+            btn.config(padx=10, pady=8)
+        self._bind_wrap_row(actions)
 
         self.status = tk.Label(
             parent,
@@ -449,6 +602,7 @@ class BattleBuddyApp:
             bg=_BG,
             highlightthickness=0,
             bd=0,
+            height=120,
         )
         self.list_box = tk.Frame(self.list_canvas, bg=_BG)
         self._list_window = self.list_canvas.create_window(
@@ -495,8 +649,9 @@ class BattleBuddyApp:
                 cursor="hand2",
                 command=lambda n=name: self._select_war_game(n),
             )
-            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            btn.config(padx=6, pady=4)
             self._roster_btns[name] = btn
+        self._bind_wrap_row(roster, gap=4)
 
         tiers = tk.Frame(strip, bg=_BG)
         tiers.pack(fill="x", pady=(0, 4))
@@ -509,8 +664,9 @@ class BattleBuddyApp:
                 cursor="hand2",
                 command=lambda k=key: self._select_session_tier(k),
             )
-            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            btn.config(padx=8, pady=4)
             self._tier_btns[key] = btn
+        self._bind_wrap_row(tiers, gap=4)
 
         self.war_line = tk.Label(
             strip,
@@ -533,8 +689,9 @@ class BattleBuddyApp:
                 cursor="hand2",
                 command=lambda k=kind: self._select_war_kind(k),
             )
-            btn.pack(side="left", expand=True, fill="x", padx=1, ipady=4)
+            btn.config(padx=8, pady=4)
             self._kind_btns[kind] = btn
+        self._bind_wrap_row(kinds, gap=4)
 
         self._field_caption(strip, "Hold this")
         self.hold_entry = self._make_entry(strip, size=16)
@@ -555,13 +712,6 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._war_room_hold,
         )
-        self.hold_btn.pack(
-            side="left",
-            expand=True,
-            fill="x",
-            ipady=8,
-            padx=(0, 8),
-        )
         self.where_btn = tk.Button(
             actions,
             text="WHERE",
@@ -573,13 +723,6 @@ class BattleBuddyApp:
             relief="flat",
             cursor="hand2",
             command=self._war_room_where,
-        )
-        self.where_btn.pack(
-            side="left",
-            expand=True,
-            fill="x",
-            ipady=8,
-            padx=(0, 8),
         )
         self.next_btn = tk.Button(
             actions,
@@ -593,13 +736,6 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._war_room_next,
         )
-        self.next_btn.pack(
-            side="left",
-            expand=True,
-            fill="x",
-            ipady=8,
-            padx=(0, 8),
-        )
         self.miss_btn = tk.Button(
             actions,
             text="MISS CHECK",
@@ -612,7 +748,9 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._war_room_miss,
         )
-        self.miss_btn.pack(side="left", expand=True, fill="x", ipady=8)
+        for btn in (self.hold_btn, self.where_btn, self.next_btn, self.miss_btn):
+            btn.config(padx=10, pady=6)
+        self._bind_wrap_row(actions)
 
         self.war_room_out = tk.Text(
             strip,
@@ -817,14 +955,58 @@ class BattleBuddyApp:
 
         self._field_caption(box, "Wiki or question", _QUERY_HINT)
 
+        read_row = tk.Frame(box, bg=_BG)
+        read_row.pack(fill="x", pady=(0, 6))
+        self.read_btn = tk.Button(
+            read_row,
+            text="READ THIS",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._read_this,
+        )
+        self.read_again_btn = tk.Button(
+            read_row,
+            text="READ AGAIN",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._read_again,
+        )
+        self.repeat_btn = tk.Button(
+            read_row,
+            text="REPEAT LAST",
+            font=("Arial", 14, "bold"),
+            bg=_BTN_DARK,
+            fg=_GOLD,
+            activebackground=_BTN_DARK_HI,
+            activeforeground=_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self._repeat_last,
+        )
+        for btn in (self.read_btn, self.read_again_btn, self.repeat_btn):
+            btn.config(padx=10, pady=8)
+        self._bind_wrap_row(read_row)
+
         query_row = tk.Frame(box, bg=_BG)
         query_row.pack(fill="x", pady=(0, 6))
         self.ask_entry = self._make_entry(query_row, size=18)
         self.url_entry = self.ask_entry
-        self.ask_entry.pack(side="left", expand=True, fill="x", ipady=10)
+        self.ask_entry.pack(fill="x", ipady=10, pady=(0, 6))
         self.ask_entry.bind("<Return>", lambda _event: self._submit_query())
+        ask_row = tk.Frame(box, bg=_BG)
+        ask_row.pack(fill="x", pady=(0, 6))
         self.query_btn = tk.Button(
-            query_row,
+            ask_row,
             text="Submit",
             font=("Arial", 16, "bold"),
             bg=_SCARLET,
@@ -835,7 +1017,8 @@ class BattleBuddyApp:
             cursor="hand2",
             command=self._submit_query,
         )
-        self.query_btn.pack(side="left", ipady=10, padx=(10, 0))
+        self.query_btn.config(padx=12, pady=8)
+        self._bind_wrap_row(ask_row)
         self.fetch_btn = self.query_btn
         self.ask_btn = self.query_btn
 
@@ -1058,13 +1241,257 @@ class BattleBuddyApp:
         if width:
             self.list_canvas.itemconfigure(self._list_window, width=width)
 
-    def _wheel(self, event: object) -> None:
-        delta = int(getattr(event, "delta", 0) or 0)
-        num = int(getattr(event, "num", 0) or 0)
-        if num == 4 or delta > 0:
-            self.list_canvas.yview_scroll(-1, "units")
-        elif num == 5 or delta < 0:
-            self.list_canvas.yview_scroll(1, "units")
+    def _on_page_canvas(self, event: object) -> None:
+        self._size_page_window(event)
+        try:
+            width = int(self.root.winfo_width() or 0)
+        except Exception:
+            width = int(getattr(event, "width", 0) or 0)
+        self._stack_columns(width)
+        self._fit_footer(width)
+
+    def _on_root_configure(self, event: object) -> None:
+        widget = getattr(event, "widget", None)
+        if widget is not None and widget is not self.root:
+            return
+        width = int(getattr(event, "width", 0) or 0)
+        self._stack_columns(width)
+        self._fit_footer(width)
+
+    def _fit_footer(self, width: int) -> None:
+        label = getattr(self, "voice_footer", None)
+        if label is None or width < 80:
+            return
+        try:
+            label.config(wraplength=max(width - 48, 80))
+        except Exception:
+            return
+
+    def _stack_columns(self, width: int) -> None:
+        if width <= 1:
+            return
+        stacked = columns_stacked(width, limit=STACK_COLUMNS_BELOW)
+        if stacked == self._columns_stacked:
+            return
+        self._columns_stacked = stacked
+        columns = getattr(self, "_columns", None)
+        left = getattr(self, "_left_col", None)
+        right = getattr(self, "_right_col", None)
+        rule = getattr(self, "_rule", None)
+        if columns is None or left is None or right is None or rule is None:
+            return
+        try:
+            if stacked:
+                columns.columnconfigure(0, weight=1, uniform="")
+                columns.columnconfigure(1, weight=0, uniform="")
+                columns.columnconfigure(2, weight=0, uniform="")
+                columns.rowconfigure(0, weight=1)
+                columns.rowconfigure(1, weight=1)
+                rule.grid_remove()
+                left.grid(
+                    row=0,
+                    column=0,
+                    columnspan=3,
+                    sticky="nsew",
+                    padx=0,
+                    pady=(8, 4),
+                )
+                right.grid(
+                    row=1,
+                    column=0,
+                    columnspan=3,
+                    sticky="nsew",
+                    padx=0,
+                    pady=(4, 8),
+                )
+            else:
+                columns.columnconfigure(0, weight=1, uniform="col")
+                columns.columnconfigure(1, weight=0, uniform="")
+                columns.columnconfigure(2, weight=1, uniform="col")
+                columns.rowconfigure(0, weight=1)
+                columns.rowconfigure(1, weight=0)
+                left.grid(
+                    row=0,
+                    column=0,
+                    columnspan=1,
+                    sticky="nsew",
+                    padx=(0, 16),
+                    pady=8,
+                )
+                rule.grid(row=0, column=1, sticky="ns", pady=16)
+                right.grid(
+                    row=0,
+                    column=2,
+                    columnspan=1,
+                    sticky="nsew",
+                    padx=(16, 0),
+                    pady=8,
+                )
+        except Exception:
+            self._columns_stacked = None
+            return
+        self._sync_page_scroll()
+
+    def _size_page_window(self, event: object) -> None:
+        width = int(getattr(event, "width", 0) or 0)
+        height = int(getattr(event, "height", 0) or 0)
+        if width:
+            self.page_canvas.itemconfigure(self._page_window, width=width)
+        try:
+            self.page.update_idletasks()
+            need = int(self.page.winfo_reqheight() or 0)
+        except Exception:
+            need = 0
+        if height <= 0:
+            self._sync_page_scroll()
+            return
+        # The page is never shorter than its content, so the scrollbar reaches every
+        # control (side-by-side too, e.g. the default 1200x800 window). When the
+        # content is shorter than the viewport the two columns still fill it.
+        inner = max(need, height)
+        self.page_canvas.itemconfigure(self._page_window, height=inner)
+        self._sync_page_scroll()
+
+    def _sync_page_scroll(self, _event: object | None = None) -> None:
+        canvas = getattr(self, "page_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.update_idletasks()
+            bbox = canvas.bbox("all")
+        except Exception:
+            return
+        if bbox:
+            canvas.configure(scrollregion=bbox)
+
+    def _bind_wrap_row(self, row: object, gap: int = 8) -> None:
+        try:
+            row.pack_propagate(False)
+        except Exception:
+            pass
+
+        def relayout(_event: object | None = None) -> None:
+            self._layout_wrap_row(row, gap)
+
+        try:
+            row.bind("<Configure>", relayout)
+        except Exception:
+            pass
+        try:
+            row.after_idle(relayout)
+        except Exception:
+            relayout()
+
+    def _layout_wrap_row(self, row: object, gap: int = 8) -> None:
+        marker = id(row)
+        if marker in self._wrap_busy:
+            return
+        try:
+            kids = list(row.winfo_children())
+        except Exception:
+            return
+        if not kids:
+            return
+        self._wrap_busy.add(marker)
+        try:
+            widths = [max(int(child.winfo_reqwidth()), 1) for child in kids]
+            heights = [max(int(child.winfo_reqheight()), 1) for child in kids]
+            row_h = max(heights) + 4
+            max_w = max(int(row.winfo_width()), 1)
+            positions, total = wrap_positions(
+                widths, max_w, gap=gap, row_height=row_h
+            )
+            for child, (x, y) in zip(kids, positions):
+                child.place(x=x, y=y)
+            total = max(total, row_h)
+            try:
+                current = int(row.cget("height") or 0)
+            except Exception:
+                current = 0
+            if current != total:
+                row.configure(height=total)
+        except Exception:
+            return
+        finally:
+            self._wrap_busy.discard(marker)
+
+    def _fit_left_wrap(self, event: object) -> None:
+        self._fit_wrap_labels(
+            event,
+            getattr(self, "seen_line", None),
+            getattr(self, "read_line", None),
+        )
+
+    def _fit_right_wrap(self, event: object) -> None:
+        self._fit_wrap_labels(event, getattr(self, "databank_status", None))
+
+    def _fit_wrap_labels(self, event: object, *labels: object) -> None:
+        width = int(getattr(event, "width", 0) or 0)
+        if width < 80:
+            return
+        wrap = max(width - 8, 80)
+        for label in labels:
+            if label is None:
+                continue
+            try:
+                label.config(wraplength=wrap)
+            except Exception:
+                continue
+
+    def _bind_app_wheel(self) -> None:
+        """Windows sends wheel to the focused window. bind_all, not overlay grabs."""
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            try:
+                self.root.bind_all(seq, self._wheel, add="+")
+            except Exception:
+                continue
+            try:
+                self.page_canvas.bind(seq, self._wheel)
+            except Exception:
+                continue
+
+    def _widget_under_wheel(self, event: object) -> object | None:
+        try:
+            x = int(getattr(event, "x_root", 0) or 0)
+            y = int(getattr(event, "y_root", 0) or 0)
+            found = self.root.winfo_containing(x, y)
+            if found is not None:
+                return found
+        except Exception:
+            pass
+        return getattr(event, "widget", None)
+
+    def _scroll_target(self, event: object) -> object | None:
+        ask = getattr(self, "ask_out", None)
+        list_c = getattr(self, "list_canvas", None)
+        list_box = getattr(self, "list_box", None)
+        page_c = getattr(self, "page_canvas", None)
+        node: object | None = self._widget_under_wheel(event)
+        while node is not None:
+            if ask is not None and node is ask:
+                return None
+            if list_c is not None and (node is list_c or node is list_box):
+                return list_c
+            if page_c is not None and node is page_c:
+                return page_c
+            node = getattr(node, "master", None)
+        return page_c
+
+    def _wheel(self, event: object) -> str | None:
+        target = self._scroll_target(event)
+        if target is None:
+            return None
+        step = wheel_units(
+            getattr(event, "delta", 0),
+            getattr(event, "num", None),
+        )
+        if step == 0:
+            return None
+        try:
+            target.yview_scroll(step, "units")
+        except Exception:
+            return None
+        return "break"
 
     def _lock(self) -> None:
         line = self.entry.get().strip()
@@ -1228,6 +1655,8 @@ class BattleBuddyApp:
             return
 
     def _bind_wheel(self, widget: object) -> None:
+        if widget is getattr(self, "ask_out", None):
+            return
         for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
             widget.bind(seq, self._wheel)
         for child in widget.winfo_children():
@@ -1398,6 +1827,78 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _read_status(self, text: str) -> None:
+        """Read This feedback. Reminder FIRE status stays on its own label."""
+
+        def _apply() -> None:
+            try:
+                self.read_line.config(text=text)
+            except Exception:
+                return
+
+        try:
+            self.root.after(0, _apply)
+        except Exception:
+            return
+
+    def _read_saved(self) -> None:
+        try:
+            self.root.after(0, self._refresh_seen)
+        except Exception:
+            return
+
+    def _snap_monitor(self) -> None:
+        self.snap.snap_monitor()
+
+    def _snap_box(self) -> None:
+        self.snap.snap_box()
+
+    def _read_this(self) -> None:
+        self.reader.start_select()
+
+    def _read_again(self) -> None:
+        self.reader.read_again()
+
+    def _repeat_last(self) -> None:
+        self.reader.repeat_last()
+
+    def _start_stop_hotkey(self) -> None:
+        if self._stop_listener is not None:
+            return
+        listener = HotkeyListener(
+            load_stop_hotkey(),
+            self._on_stop_hotkey,
+            name="battlebuddy-stop-hotkey",
+            taken_hint="BATTLEBUDDY_STOP_HOTKEY or stop_hotkey in session.json",
+            need_windows="Global hotkey needs Windows. Use the STOP TALKING button.",
+            hotkey_id=STOP_HOTKEY_ID,
+        )
+        self._stop_listener = listener
+        error = listener.start()
+        if error:
+            try:
+                self._read_status(error)
+            except Exception:
+                pass
+
+    def _on_stop_hotkey(self) -> None:
+        try:
+            self.root.after(0, self._stop_talking)
+        except Exception:
+            self._stop_talking()
+
+    def _stop_talking(self) -> None:
+        """Kill any local TTS and undim an active box. Safe when idle."""
+        try:
+            self.reader.stop_talking()
+        except Exception:
+            pass
+        try:
+            self.snap.stop_talking()
+        except Exception:
+            pass
+        stop_speaking()
+
     def _scan_now(self) -> None:
         """Immediate rescan. Ignores the 5s poll throttle. Fire stays live."""
         try:
@@ -1422,7 +1923,7 @@ class BattleBuddyApp:
         try:
             found = miss_check(
                 unsolicited=True,
-                key=(os.environ.get("XAI_API_KEY") or "").strip() or None,
+                key=api_key(),
             )
         except Exception:
             found = None
@@ -1636,13 +2137,67 @@ class BattleBuddyApp:
         except Exception:
             return
 
+    def _restore_window(self) -> None:
+        saved = load_window()
+        if saved is None:
+            return
+        spec = window_geometry(
+            saved,
+            default=_DEFAULT_GEOMETRY,
+            min_w=_MIN_WIDTH,
+            min_h=_MIN_HEIGHT,
+        )
+        try:
+            self.root.geometry(spec)
+        except Exception:
+            self.root.geometry(_DEFAULT_GEOMETRY)
+
+    def _remember_window(self) -> None:
+        root = getattr(self, "root", None)
+        if root is None:
+            return
+        try:
+            root.update_idletasks()
+            parsed = parse_tk_geometry(str(root.geometry()))
+        except Exception:
+            return
+        if parsed is None:
+            return
+        try:
+            save_window(
+                parsed["width"],
+                parsed["height"],
+                parsed.get("x"),
+                parsed.get("y"),
+            )
+        except Exception:
+            return
+
     def _on_close(self) -> None:
         if self._hud is not None:
             try:
                 self._hud.shutdown()
             except Exception:
                 pass
+        self._remember_window()
         self._clear_drafts()
+        try:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                self.root.unbind_all(seq)
+        except Exception:
+            pass
+        try:
+            self.reader.shutdown()
+            self.snap.shutdown()
+        except Exception:
+            pass
+        listener = self._stop_listener
+        self._stop_listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                pass
         try:
             stop_bundled_server()
         except Exception:

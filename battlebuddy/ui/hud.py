@@ -187,10 +187,14 @@ class HudOverlay:
             return
         self._body = body
         try:
+            first_line = self._out.index("@0,0")  # type: ignore[attr-defined]
+            at_top = float(self._out.yview()[0]) <= 0.0  # type: ignore[attr-defined]
             self._out.config(state="normal")  # type: ignore[attr-defined]
             self._out.delete("1.0", "end")  # type: ignore[attr-defined]
             self._out.insert("1.0", body)  # type: ignore[attr-defined]
             self._out.config(state="disabled")  # type: ignore[attr-defined]
+            if not at_top:
+                self._out.yview(first_line)  # type: ignore[attr-defined]
         except Exception:
             return
 

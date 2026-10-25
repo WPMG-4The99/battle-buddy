@@ -1,0 +1,5 @@
+# Optional. Read This only. Remind / FIRE / SCAN / ASK do not need these.
+mss
+Pillow
+winsdk
+pytesseract
