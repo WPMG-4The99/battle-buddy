@@ -44,8 +44,10 @@ _HELP = """Battle Buddy. No account. No cloud. Typed fallback always.
   python -m battlebuddy harvest
   python -m battlebuddy seed corsair
   python -m battlebuddy miss check
+  python -m battlebuddy ask jessica <question>
 
 State lives in ~/.battlebuddy (or BATTLEBUDDY_HOME). Reminders: memory.json. Games, notes, and War Room: catalog.sqlite. Home roster only.
+Ask Jessica is Cap-only via Hermes SuperGrok OAuth (not Zo). Offline remind / ASK stay local.
 Stay in this window so it can fire. Ctrl+C keeps it on disk.
 Oorah.
 """
@@ -160,6 +162,12 @@ def run(argv: list[str] | None = None) -> int:
     if result.kind == "ask":
         print(result.message)
         if result.speak:
+            speak(result.speak)
+        return 0 if result.ok else 1
+
+    if result.kind == "ask_jessica":
+        print(result.message)
+        if result.ok and result.speak:
             speak(result.speak)
         return 0 if result.ok else 1
 
