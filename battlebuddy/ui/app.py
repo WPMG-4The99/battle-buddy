@@ -51,7 +51,6 @@ from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
 from battlebuddy.ui.hud import HudOverlay
-from battlebuddy.ui.overlay_win import enable_dpi_awareness
 from battlebuddy.readthis.config import load_stop_hotkey, stop_hotkey_label
 from battlebuddy.readthis.listen import STOP_HOTKEY_ID, HotkeyListener
 from battlebuddy.readthis.service import ReadAloud
@@ -233,9 +232,6 @@ def run_ui() -> int:
         print("No tkinter on this box. Typed path still works:")
         print("  python -m battlebuddy remind me in 1 minute to check food stores")
         return 1
-    enable_dpi_awareness()
-    app = BattleBuddyApp(tk)
-    app.run()
     try:
         app = BattleBuddyApp(tk)
         app.run()

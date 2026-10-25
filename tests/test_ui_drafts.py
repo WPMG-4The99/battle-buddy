@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
 import unittest
@@ -95,6 +96,9 @@ class DraftBoxesLiveTest(unittest.TestCase):
         os.environ["BATTLEBUDDY_HOME"] = str(self.home)
 
     def tearDown(self) -> None:
+        # Collect dead Tk objects here, on the main thread. Left for interpreter exit
+        # they can be freed from another thread and abort with Tcl_AsyncDelete.
+        gc.collect()
         if self._old_home is None:
             os.environ.pop("BATTLEBUDDY_HOME", None)
         else:
