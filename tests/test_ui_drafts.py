@@ -13,6 +13,17 @@ from battlebuddy.reminders.commands import run_line
 from battlebuddy.ui import app as ui_app
 
 
+def _scroll_bottom(app) -> int:
+    """Bottom of the page scroll region, in page (canvas) pixels."""
+    region = [float(v) for v in str(app.page_canvas.cget("scrollregion")).split()]
+    return int(region[3])
+
+
+def _page_y(app, root_y: int) -> int:
+    """Screen y -> y inside the scrolled page, so reachability is a scroll question."""
+    return int(root_y) - int(app.page.winfo_rooty())
+
+
 class CombinedQueryRouteTest(unittest.TestCase):
     def test_http_url_is_fetch_everything_else_is_ask(self) -> None:
         self.assertTrue(ui_app.looks_like_public_url("https://wiki.example.com/Food"))
@@ -45,7 +56,7 @@ class DraftBoxesSourceTest(unittest.TestCase):
         self.assertIn("self._tick_clocks()", source)
         self.assertIn("detect_game", source)
         self.assertIn('geometry("1200x800")', source)
-        self.assertIn("minsize(1000, 640)", source)
+        self.assertIn("minsize(720, 560)", source)
         self.assertNotIn('geometry("760x900")', source)
         self.assertNotIn('geometry("760x1080")', source)
         self.assertNotIn("760x1080", source)
@@ -144,13 +155,16 @@ class DraftBoxesLiveTest(unittest.TestCase):
             self.assertLess(xs["CLEAR ALL"], xs["Wiki or question"])
             self.assertGreater(int(app.ask_out.winfo_rooty()), order["Wiki or question"])
             win_top = int(app.root.winfo_rooty())
-            win_bottom = win_top + int(app.root.winfo_height())
+            # The page scrolls: every control must sit inside the scroll region
+            # (reachable by scrolling), and the region must cover the full content.
+            region_bottom = _scroll_bottom(app)
+            self.assertGreaterEqual(region_bottom, int(app.page.winfo_reqheight()))
             for name, y in order.items():
                 self.assertGreaterEqual(y, win_top, name)
-                self.assertLess(y, win_bottom, name)
+                self.assertLess(_page_y(app, y), region_bottom, name)
             geo = str(app.root.geometry()).split("+", 1)[0]
             width, height = (int(part) for part in geo.split("x"))
-            self.assertGreaterEqual(width, 1000)
+            self.assertGreaterEqual(width, 720)
             self.assertLessEqual(height, 800)
             app.entry.insert(0, "draft reminder")
             app.ask_entry.insert(0, "where is food")
@@ -277,13 +291,15 @@ class DraftBoxesLiveTest(unittest.TestCase):
             self.assertEqual(str(pane_info.get("expand")), "1")
             self.assertEqual(str(pane_info.get("fill")), "both")
             win_top = int(app.root.winfo_rooty())
-            win_bottom = win_top + int(app.root.winfo_height())
             out_top = int(app.ask_out.winfo_rooty())
             out_bottom = out_top + int(app.ask_out.winfo_height())
+            # Reachable by scrolling: scroll region covers the content and the box.
+            region_bottom = _scroll_bottom(app)
+            self.assertGreaterEqual(region_bottom, int(app.page.winfo_reqheight()))
             self.assertGreater(int(app.ask_out.winfo_height()), 80)
             self.assertGreater(out_top, int(app.source_count.winfo_rooty()))
             self.assertGreaterEqual(out_top, win_top)
-            self.assertLess(out_bottom, win_bottom + 8)
+            self.assertLessEqual(_page_y(app, out_bottom), region_bottom + 8)
             self.assertLessEqual(int(app.source_box.winfo_height()), 40)
         finally:
             app._on_close()
