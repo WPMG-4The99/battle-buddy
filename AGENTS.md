@@ -47,3 +47,12 @@ Never in product or README: Satan/Satanic, worship/obedience/submission, Hooah, 
 
 We are not asking for a seat at their table. We built a revolution instead.  
 For the forgotten 99%, we rise.
+
+## Cursor Cloud specific instructions
+
+- Python 3.12. Stdlib only. `requirements.txt` has no packages. Do not pip-install for the reminder loop.
+- Linux UI needs `python3-tk`. Linux TTS needs `espeak-ng`. Visual FIRE still works if TTS is missing.
+- Tests: `python3 -m unittest discover -s tests`. A full-suite process can abort on exit with `Tcl_AsyncDelete` after Tk tests. Per-file runs exit clean: `python3 -m unittest tests.test_list_snooze_clear`.
+- `tests.test_xai.SourceLawTest.test_hosts_stay_out_of_reason_and_tts` fails today because `battlebuddy/ui/app.py` reads `XAI_API_KEY`. That is product code, not a missing package.
+- UI: `python3 -m battlebuddy ui` (needs a display). CLI: `python3 -m battlebuddy remind me in 1 minute to check food stores`.
+- State is `~/.battlebuddy` or `BATTLEBUDDY_HOME`. Leave `XAI_API_KEY` and `STEAM_WEB_API_KEY` unset.
