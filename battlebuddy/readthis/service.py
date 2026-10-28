@@ -227,10 +227,9 @@ class ReadAloud:
                 self._status(str(exc))
                 return
             except Exception:
-                self._status(
-                    "Read This failed before speech. "
-                    "pip install -r requirements-readthis.txt"
-                )
+                from battlebuddy.readthis.hints import read_failed_help
+
+                self._status(read_failed_help())
                 return
             text = clean_ocr_text(raw)
             if token != self._token or self._closed:

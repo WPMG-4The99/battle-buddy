@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import queue
+import threading
 from datetime import datetime, timezone
 
+from battlebuddy.ui.context_menu import attach_context_menu
+from battlebuddy.ui.layout import wheel_units
 from battlebuddy.ui.overlay_hotkey import OverlayHotkey
 from battlebuddy.ui.overlay_model import (
     BOX_H,
@@ -60,6 +63,8 @@ class HudOverlay:
         self._placing = False
         self._disowned = False
         self._save_after: str | None = None
+        self._ui_thread = threading.get_ident()
+        self._ui_calls: queue.Queue = queue.Queue()
         self._show_var = tk.BooleanVar(master=root, value=False)  # type: ignore[attr-defined]
         self._click_var = tk.BooleanVar(master=root, value=self.prefs.click_through)  # type: ignore[attr-defined]
         self._build_menu()
@@ -83,7 +88,11 @@ class HudOverlay:
             self._menu.entryconfig(0, label=self._hotkey_note)  # type: ignore[attr-defined]
         except Exception:
             pass
-        self._tray = OverlayTray(self._events, self._tray_state)
+        self._tray = OverlayTray(
+            self._events,
+            self._tray_state,
+            schedule=self._schedule_from_tray,
+        )
         self._tray.start()
         self._publish()
         if self.prefs.visible:
@@ -111,6 +120,12 @@ class HudOverlay:
             except Exception:
                 pass
         win = self._win
+        if win is not None and self._save_after is not None:
+            try:
+                win.after_cancel(self._save_after)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self._save_after = None
         self._win = None
         self._shown = False
         if win is not None:
@@ -189,9 +204,11 @@ class HudOverlay:
         try:
             first_line = self._out.index("@0,0")  # type: ignore[attr-defined]
             at_top = float(self._out.yview()[0]) <= 0.0  # type: ignore[attr-defined]
+            sel = _selection(self._out)
             self._out.config(state="normal")  # type: ignore[attr-defined]
             self._out.delete("1.0", "end")  # type: ignore[attr-defined]
             self._out.insert("1.0", body)  # type: ignore[attr-defined]
+            _restore_selection(self._out, sel)
             self._out.config(state="disabled")  # type: ignore[attr-defined]
             if not at_top:
                 self._out.yview(first_line)  # type: ignore[attr-defined]
@@ -213,6 +230,10 @@ class HudOverlay:
             label="Click through",
             command=self._on_click,
             variable=self._click_var,
+        )
+        menu.add_command(
+            label="Turn off click-through / Reset overlay",
+            command=self.reset_click_through,
         )
         bar.add_cascade(label="Overlay", menu=menu)
         self._menu = menu
@@ -335,6 +356,11 @@ class HudOverlay:
         self._out.config(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self._out.pack(side="left", fill="both", expand=True)
+        self._bind_overlay_wheel(win)
+        try:
+            attach_context_menu(self._out, readonly=True)
+        except Exception:
+            pass
         self._win = win
         self._sync_click_state()
 
@@ -392,28 +418,95 @@ class HudOverlay:
         self.prefs.last_monitor = monitor.key
 
     def _on_opacity(self, raw: str) -> None:
+        self.set_opacity(raw)
+
+    def set_opacity(self, raw: object) -> None:
+        """Opacity slider. Click-through cannot stay on at 50% or above."""
+        self._on_ui(lambda: self._set_opacity(raw))
+
+    def _set_opacity(self, raw: object) -> None:
         self.prefs.opacity = clamp_opacity(raw)
         if self._percent is not None:
             try:
                 self._percent.config(text=f"{self.prefs.opacity}%")  # type: ignore[attr-defined]
             except Exception:
                 pass
-        self._apply_chrome()
+        self._apply_click_through()
         self._sync_click_state()
+        self._publish()
         self._schedule_save()
 
     def _on_click(self) -> None:
-        if self.prefs.opacity >= 50:
+        try:
+            wanted = bool(self._click_var.get())
+        except Exception:
+            wanted = not self.prefs.click_through
+        self.set_click_through(wanted)
+
+    def set_click_through(self, enabled: bool) -> None:
+        """Turn click-through on or off. Off always strips WS_EX_TRANSPARENT."""
+        self._on_ui(lambda: self._set_click_through(bool(enabled)))
+
+    def _set_click_through(self, enabled: bool) -> None:
+        if self.prefs.opacity >= 50 and enabled:
             try:
                 self._click_var.set(self.prefs.click_through)
             except Exception:
                 pass
+            self._apply_click_through()
             self._sync_click_state()
+            self._publish()
             return
-        self.prefs.click_through = bool(self._click_var.get())
-        self._apply_chrome()
+        self.prefs.click_through = bool(enabled)
+        try:
+            self._click_var.set(self.prefs.click_through)
+        except Exception:
+            pass
+        self._apply_click_through()
+        self._sync_click_state()
         self._publish()
         self._save_now()
+
+    def reset_click_through(self) -> None:
+        """Turn click-through off and flush the Windows hit-test. Works anytime."""
+        self._on_ui(self._reset_click_through)
+
+    def _reset_click_through(self) -> None:
+        self.prefs.click_through = False
+        try:
+            self._click_var.set(False)
+        except Exception:
+            pass
+        self._apply_click_through()
+        self._sync_click_state()
+        self._publish()
+        self._save_now()
+
+    def _on_ui(self, fn) -> None:
+        """Run ``fn`` on the Tk thread. pystray callbacks are not that thread."""
+        if threading.get_ident() == self._ui_thread:
+            fn()
+            return
+        self._ui_calls.put(fn)
+        try:
+            self.root.after(0, self._drain_ui_calls)  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+    def _drain_ui_calls(self) -> None:
+        while True:
+            try:
+                fn = self._ui_calls.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                fn()
+            except Exception:
+                continue
+
+    def _schedule_from_tray(self) -> None:
+        """pystray menu thread: marshal the queued tray event onto Tk with after(0)."""
+        self._on_ui(self._drain)
 
     def _on_show_menu(self) -> None:
         if self._show_var.get():
@@ -422,6 +515,10 @@ class HudOverlay:
             self.hide()
 
     def _apply_chrome(self) -> None:
+        self._apply_click_through()
+
+    def _apply_click_through(self) -> None:
+        """Set or strip WS_EX_TRANSPARENT, then flush the hit-test cache."""
         win = self._win
         if win is None:
             return
@@ -462,6 +559,12 @@ class HudOverlay:
             click_through=bool(self.prefs.click_through),
             click_enabled=self.prefs.opacity < 50,
         )
+        tray = self._tray
+        if tray is not None:
+            try:
+                tray.refresh()
+            except Exception:
+                pass
 
     def _schedule_save(self) -> None:
         win = self._win
@@ -487,6 +590,7 @@ class HudOverlay:
     def _poll(self) -> None:
         if self._dead:
             return
+        self._drain_ui_calls()
         self._drain()
         if self._shown:
             try:
@@ -507,13 +611,59 @@ class HudOverlay:
             if event == "toggle":
                 self.toggle()
             elif event == "click":
-                self._click_var.set(not self.prefs.click_through)
-                self._on_click()
+                self.set_click_through(not self.prefs.click_through)
+            elif event == "reset":
+                self.reset_click_through()
+
+    def scroll_wheel(self, event: object) -> str:
+        """Scroll only the overlay text. ``break`` stops the main window from moving."""
+        return self._on_overlay_wheel(event)
+
+    def _bind_overlay_wheel(self, win: object) -> None:
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            try:
+                win.bind(seq, self._on_overlay_wheel)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if self._out is not None:
+                try:
+                    self._out.bind(seq, self._on_overlay_wheel)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+    def _on_overlay_wheel(self, event: object) -> str:
+        out = self._out
+        if out is None:
+            return "break"
+        step = wheel_units(getattr(event, "delta", 0), getattr(event, "num", None))
+        if step:
+            try:
+                out.yview_scroll(step, "units")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return "break"
 
     def _on_root_destroy(self, event: object) -> None:
         if getattr(event, "widget", None) is not self.root:
             return
         self.shutdown()
+
+
+def _selection(widget: object) -> tuple[str, str] | None:
+    try:
+        return (str(widget.index("sel.first")), str(widget.index("sel.last")))  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
+def _restore_selection(widget: object, sel: tuple[str, str] | None) -> None:
+    if sel is None:
+        return
+    try:
+        widget.tag_remove("sel", "1.0", "end")  # type: ignore[attr-defined]
+        widget.tag_add("sel", sel[0], sel[1])  # type: ignore[attr-defined]
+    except Exception:
+        return
 
 
 def _label_text(widget: object | None) -> str:

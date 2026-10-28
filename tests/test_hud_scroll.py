@@ -74,6 +74,38 @@ class HudScrollKeepTest(unittest.TestCase):
             hud.refresh()
             app.root.update()
             self.assertLess(float(hud._out.yview()[0]), 0.001)
+
+            # Scrolled to the bottom: a tick must not jump back to the top.
+            hud._out.yview_moveto(1.0)
+            app.root.update()
+            bottom = float(hud._out.yview()[0])
+            self.assertGreater(bottom, 0.2)
+            self._fill_ask(app, 120, "fourth")
+            hud.refresh()
+            app.root.update()
+            self.assertGreater(float(hud._out.yview()[0]), 0.2)
+            self.assertAlmostEqual(bottom, float(hud._out.yview()[0]), delta=0.08)
+        finally:
+            app._on_close()
+
+    def test_refresh_keeps_a_text_selection(self) -> None:
+        tk = self._tk()
+        app = ui_app.BattleBuddyApp(tk)
+        try:
+            hud = app._hud
+            self._fill_ask(app, 40, "sel")
+            hud.show()
+            for _ in range(3):
+                app.root.update()
+            hud._out.config(state="normal")
+            hud._out.tag_add("sel", "1.0", "1.6")
+            hud._out.config(state="disabled")
+            self.assertEqual(hud._out.get("sel.first", "sel.last"), "TIMERS")
+            self._fill_ask(app, 40, "next")
+            hud.refresh()
+            app.root.update()
+            self.assertEqual(hud._out.get("sel.first", "sel.last"), "TIMERS")
+            self.assertEqual(str(hud._out.cget("state")), "disabled")
         finally:
             app._on_close()
 

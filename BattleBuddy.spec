@@ -47,6 +47,44 @@ _BATTLEBUDDY_MODULES = [
     "battlebuddy.memory.store",
     "battlebuddy.memory.catalog",
     "battlebuddy.win_entry",
+    "battlebuddy.readthis",
+    "battlebuddy.readthis.capture",
+    "battlebuddy.readthis.clean",
+    "battlebuddy.readthis.config",
+    "battlebuddy.readthis.hints",
+    "battlebuddy.readthis.hotkey",
+    "battlebuddy.readthis.listen",
+    "battlebuddy.readthis.ocr",
+    "battlebuddy.readthis.overlay",
+    "battlebuddy.readthis.region",
+    "battlebuddy.readthis.screen",
+    "battlebuddy.readthis.service",
+    "battlebuddy.snap",
+    "battlebuddy.snap.answer",
+    "battlebuddy.snap.config",
+    "battlebuddy.snap.context",
+    "battlebuddy.snap.facts",
+    "battlebuddy.snap.pipeline",
+    "battlebuddy.snap.service",
+    "battlebuddy.snap.shots",
+    "battlebuddy.ui.layout",
+    "battlebuddy.ui.hud",
+    "battlebuddy.ui.tray",
+    "battlebuddy.ui.overlay_model",
+    "battlebuddy.ui.overlay_win",
+    "battlebuddy.ui.overlay_hotkey",
+    "battlebuddy.ui.context_menu",
+    "battlebuddy.ui.multiline",
+]
+
+_BUNDLED_EXTRAS = [
+    "pystray",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageDraw",
+    "mss",
+    "pytesseract",
+    "winsdk",
 ]
 
 hiddenimports = [
@@ -57,6 +95,7 @@ hiddenimports = [
     "_tkinter",
     "winsound",
     *_BATTLEBUDDY_MODULES,
+    *_BUNDLED_EXTRAS,
 ]
 
 try:
@@ -73,6 +112,11 @@ for _optional in (
     "win32com",
     "win32com.client",
     "pythoncom",
+    "pystray",
+    "PIL",
+    "mss",
+    "pytesseract",
+    "winsdk",
 ):
     try:
         hiddenimports.extend(collect_submodules(_optional))

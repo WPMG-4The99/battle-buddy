@@ -11,14 +11,9 @@ from pathlib import Path
 
 from battlebuddy.readthis.capture import ReadError
 from battlebuddy.readthis.clean import join_ocr_lines
+from battlebuddy.readthis.hints import ocr_help, pillow_help, tesseract_help
 
 INVERT_MEAN_BELOW = 140.0
-
-_OCR_HELP = (
-    "Read This needs local OCR. Windows uses Windows.Media.Ocr "
-    "(the winsdk package when it imports, otherwise Windows PowerShell). "
-    "Fallback: pip install pytesseract and install the Tesseract binary on PATH."
-)
 
 # Windows PowerShell 5.1 can call WinRT. PowerShell 7 cannot.
 # Two backticks so the file PowerShell runs contains one backtick in IAsyncOperation`1.
@@ -72,9 +67,7 @@ def prepare_for_ocr(image: object) -> object:
     try:
         from PIL import Image, ImageOps, ImageStat
     except ImportError as exc:
-        raise ReadError(
-            "Read This needs Pillow to prep the grab. pip install Pillow"
-        ) from exc
+        raise ReadError(pillow_help()) from exc
     gray = image if getattr(image, "mode", "") == "L" else ImageOps.grayscale(image)
     width, height = gray.size
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
@@ -108,7 +101,7 @@ def recognize(image: object) -> str:
     except Exception as exc:
         errors.append(f"Tesseract failed ({exc})")
     detail = "; ".join(errors) if errors else "no engine"
-    raise ReadError(f"{_OCR_HELP} ({detail})")
+    raise ReadError(f"{ocr_help()} ({detail})")
 
 
 def _recognize_tesseract(image: object) -> str:
@@ -117,10 +110,7 @@ def _recognize_tesseract(image: object) -> str:
     try:
         text = pytesseract.image_to_string(image)
     except pytesseract.TesseractNotFoundError as exc:
-        raise ReadError(
-            "Tesseract is not on PATH. Install the Tesseract binary, "
-            "or on Windows pip install winsdk and use Windows OCR."
-        ) from exc
+        raise ReadError(tesseract_help()) from exc
     return str(text or "")
 
 

@@ -27,6 +27,8 @@ TPM_RIGHTBUTTON = 0x0002
 IDI_APPLICATION = 32512
 CMD_TOGGLE = 1
 CMD_CLICK = 2
+CMD_RESET = 3
+_RESET_LABEL = "Turn off click-through / Reset overlay"
 
 
 def _icon_data_type() -> type:
@@ -77,9 +79,15 @@ class TrayState:
 class OverlayTray:
     """Windows tray icon. Other platforms no-op. Events land on a queue, not on Tk."""
 
-    def __init__(self, events: queue.Queue[str], state: TrayState) -> None:
+    def __init__(
+        self,
+        events: queue.Queue[str],
+        state: TrayState,
+        schedule=None,
+    ) -> None:
         self._events = events
         self._state = state
+        self._schedule = schedule
         self.error: str | None = None
         self._ready = threading.Event()
         self._thread: threading.Thread | None = None
@@ -87,22 +95,62 @@ class OverlayTray:
         self._proc: object | None = None
         self._class = f"BattleBuddyHudTray{uuid.uuid4().hex}"
         self._added = False
+        self._icon: object | None = None
+        self._mode = ""
+
+    def refresh(self) -> None:
+        """Ask pystray to rebuild checks. The native menu reads state when it opens."""
+        icon = self._icon
+        if icon is None:
+            return
+        try:
+            icon.update_menu()  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+    def _emit(self, kind: str) -> None:
+        self._events.put(kind)
+        schedule = self._schedule
+        if schedule is None:
+            return
+        try:
+            schedule()
+        except Exception:
+            return
 
     def start(self) -> str | None:
         if sys.platform != "win32":
             self.error = "Tray icon needs Windows. Use the Overlay menu."
             self._ready.set()
             return self.error
-        self._thread = threading.Thread(
-            target=self._loop,
-            name="battlebuddy-overlay-tray",
-            daemon=True,
-        )
+        if _pystray_ready():
+            self._mode = "pystray"
+            self._thread = threading.Thread(
+                target=self._pystray_loop,
+                name="battlebuddy-overlay-tray",
+                daemon=True,
+            )
+        else:
+            self._mode = "native"
+            self._thread = threading.Thread(
+                target=self._loop,
+                name="battlebuddy-overlay-tray",
+                daemon=True,
+            )
         self._thread.start()
         self._ready.wait(timeout=2.0)
         return self.error
 
     def stop(self) -> None:
+        icon = self._icon
+        if icon is not None:
+            try:
+                icon.stop()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if self._thread is not None:
+                self._thread.join(timeout=2.0)
+            return
         if sys.platform != "win32" or not self._hwnd:
             return
         import ctypes
@@ -146,7 +194,7 @@ class OverlayTray:
             if msg == WM_APP:
                 mouse = int(lparam) & 0xFFFF
                 if mouse in {WM_LBUTTONUP, WM_LBUTTONDBLCLK}:
-                    self._events.put("toggle")
+                    self._emit("toggle")
                 elif mouse == WM_RBUTTONUP:
                     self._popup(user32, hwnd)
                 return 0
@@ -306,6 +354,7 @@ class OverlayTray:
             click_flags |= MF_GRAYED
         user32.AppendMenuW(menu, show_flags, CMD_TOGGLE, "Show overlay")  # type: ignore[attr-defined]
         user32.AppendMenuW(menu, click_flags, CMD_CLICK, "Click through")  # type: ignore[attr-defined]
+        user32.AppendMenuW(menu, MF_STRING, CMD_RESET, _RESET_LABEL)  # type: ignore[attr-defined]
         user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]  # type: ignore[attr-defined]
         user32.GetCursorPos.restype = wintypes.BOOL  # type: ignore[attr-defined]
         point = wintypes.POINT()
@@ -344,6 +393,67 @@ class OverlayTray:
         user32.DestroyMenu.argtypes = [wintypes.HMENU]  # type: ignore[attr-defined]
         user32.DestroyMenu(menu)  # type: ignore[attr-defined]
         if cmd == CMD_TOGGLE:
-            self._events.put("toggle")
+            self._emit("toggle")
         elif cmd == CMD_CLICK and click_enabled:
-            self._events.put("click")
+            self._emit("click")
+        elif cmd == CMD_RESET:
+            self._emit("reset")
+
+    def _pystray_loop(self) -> None:
+        try:
+            import pystray
+
+            image = _tray_image()
+            self._icon = pystray.Icon(
+                "battle-buddy",
+                image,
+                "Battle Buddy overlay",
+                menu=self._pystray_menu,
+            )
+            self._ready.set()
+            self._icon.run()
+        except Exception as exc:
+            self.error = str(exc) or "Tray icon failed."
+        finally:
+            self._ready.set()
+
+    def _pystray_menu(self):
+        """Callable menu so update_menu() rebuilds checks from TrayState."""
+        import pystray
+
+        return pystray.Menu(
+            pystray.MenuItem(
+                "Show overlay",
+                lambda _icon, _item: self._emit("toggle"),
+                checked=lambda _item: self._state.snapshot()[0],
+                default=True,
+            ),
+            pystray.MenuItem(
+                "Click through",
+                lambda _icon, _item: self._emit("click"),
+                checked=lambda _item: self._state.snapshot()[1],
+                enabled=lambda _item: self._state.snapshot()[2],
+            ),
+            pystray.MenuItem(
+                _RESET_LABEL,
+                lambda _icon, _item: self._emit("reset"),
+            ),
+        )
+
+
+def _pystray_ready() -> bool:
+    try:
+        import pystray  # noqa: F401
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _tray_image():
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGBA", (64, 64), (11, 11, 11, 255))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((8, 8, 56, 56), fill=(230, 195, 92, 255))
+    return image

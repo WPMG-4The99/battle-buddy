@@ -7,6 +7,14 @@ import sys
 from battlebuddy.ui.overlay_model import Monitor, exstyle_bits
 
 _PRIMARY = 1
+GWL_EXSTYLE = -20
+GWLP_HWNDPARENT = -8
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
+SWP_FRAMECHANGED = 0x0020
+# Flush the hit-test cache. Do not move, resize, or change z-order.
+HITTEST_FLUSH_FLAGS = SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
 
 
 def enable_dpi_awareness() -> None:
@@ -166,12 +174,12 @@ def _root_hwnd(hwnd: int) -> int:
 
 
 def _long_pair(user32: object) -> tuple[object, object]:
+    """Get/SetWindowLongPtrW, falling back to the non-Ptr pair on 32-bit."""
     import ctypes
 
-    try:
-        get_long = user32.GetWindowLongPtrW  # type: ignore[attr-defined]
-        set_long = user32.SetWindowLongPtrW  # type: ignore[attr-defined]
-    except AttributeError:
+    get_long = getattr(user32, "GetWindowLongPtrW", None)
+    set_long = getattr(user32, "SetWindowLongPtrW", None)
+    if get_long is None or set_long is None:
         get_long = user32.GetWindowLongW  # type: ignore[attr-defined]
         set_long = user32.SetWindowLongW  # type: ignore[attr-defined]
     get_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
@@ -187,13 +195,13 @@ def _apply(hwnd: int, *, click_through: bool, disown: bool) -> None:
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     get_long, set_long = _long_pair(user32)
-    style = int(get_long(hwnd, -20))
-    set_long(hwnd, -20, exstyle_bits(style, click_through=click_through))
+    style = int(get_long(hwnd, GWL_EXSTYLE))
+    set_long(hwnd, GWL_EXSTYLE, exstyle_bits(style, click_through=click_through))
     if disown:
-        set_long(hwnd, -8, 0)
+        set_long(hwnd, GWLP_HWNDPARENT, 0)
     user32.SetWindowPos.argtypes = [
         wintypes.HWND,
-        wintypes.HWND,
+        ctypes.c_void_p,
         ctypes.c_int,
         ctypes.c_int,
         ctypes.c_int,
@@ -201,5 +209,5 @@ def _apply(hwnd: int, *, click_through: bool, disown: bool) -> None:
         wintypes.UINT,
     ]
     user32.SetWindowPos.restype = wintypes.BOOL
-    # NOSIZE | NOMOVE | NOACTIVATE | FRAMECHANGED. Z-order only.
-    user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, 0x0013 | 0x0020)
+    # SWP_NOZORDER ignores hwndInsertAfter and flushes the hit-test cache now.
+    user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, HITTEST_FLUSH_FLAGS)

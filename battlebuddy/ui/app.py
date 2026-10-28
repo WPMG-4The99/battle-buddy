@@ -50,7 +50,9 @@ from battlebuddy.reminders.hygiene import is_active as hygiene_is_active
 from battlebuddy.reminders.notify import fire_banner
 from battlebuddy.reminders.parse import is_clear_all
 from battlebuddy.reminders.warn import pending_minute_warns
+from battlebuddy.ui.context_menu import attach_context_menu
 from battlebuddy.ui.hud import HudOverlay
+from battlebuddy.ui.multiline import MultiLineEntry
 from battlebuddy.readthis.config import load_stop_hotkey, stop_hotkey_label
 from battlebuddy.readthis.listen import STOP_HOTKEY_ID, HotkeyListener
 from battlebuddy.readthis.service import ReadAloud
@@ -289,7 +291,8 @@ class BattleBuddyApp:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._warm_bundled_llm, daemon=True).start()
-        self.root.after(_POLL_MS, self._tick)
+        self._closing = False
+        self._tick_job = self.root.after(_POLL_MS, self._tick)
 
     def run(self) -> None:
         if self._hud is not None:
@@ -379,6 +382,7 @@ class BattleBuddyApp:
         self._fit_footer(int(self.root.winfo_width() or 1200))
 
         self._refresh_list()
+        self._attach_context_menus()
         pending = [item for item in self.engine.list_all() if item.status == "pending"]
         if pending:
             self.status.config(text="Holding the line. Pending reminder on disk.")
@@ -572,6 +576,7 @@ class BattleBuddyApp:
             if btn is None:
                 continue
             btn.config(padx=10, pady=8)
+        self._bind_press_action(self.lock_btn, self._lock)
         self._bind_wrap_row(actions)
 
         self.status = tk.Label(
@@ -995,10 +1000,24 @@ class BattleBuddyApp:
 
         query_row = tk.Frame(box, bg=_BG)
         query_row.pack(fill="x", pady=(0, 6))
-        self.ask_entry = self._make_entry(query_row, size=18)
+        self.ask_entry = MultiLineEntry(
+            query_row,
+            height=3,
+            width=24,
+            font=("Arial", 18),
+            bg=_INPUT_BG,
+            fg=_FG,
+            insertbackground=_GOLD,
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=_EDGE,
+            highlightcolor=_PURPLE,
+            wrap="word",
+            undo=True,
+            on_submit=self._submit_query,
+        )
         self.url_entry = self.ask_entry
-        self.ask_entry.pack(fill="x", ipady=10, pady=(0, 6))
-        self.ask_entry.bind("<Return>", lambda _event: self._submit_query())
+        self.ask_entry.pack(fill="x", pady=(0, 6))
         ask_row = tk.Frame(box, bg=_BG)
         ask_row.pack(fill="x", pady=(0, 6))
         self.query_btn = tk.Button(
@@ -1014,6 +1033,7 @@ class BattleBuddyApp:
             command=self._submit_query,
         )
         self.query_btn.config(padx=12, pady=8)
+        self._bind_press_action(self.query_btn, self._submit_query)
         self._bind_wrap_row(ask_row)
         self.fetch_btn = self.query_btn
         self.ask_btn = self.query_btn
@@ -1398,6 +1418,8 @@ class BattleBuddyApp:
                 widths, max_w, gap=gap, row_height=row_h
             )
             for child, (x, y) in zip(kids, positions):
+                if _already_placed(child, x, y):
+                    continue
                 child.place(x=x, y=y)
             total = max(total, row_h)
             try:
@@ -1459,11 +1481,19 @@ class BattleBuddyApp:
 
     def _scroll_target(self, event: object) -> object | None:
         ask = getattr(self, "ask_out", None)
+        entry = getattr(self, "ask_entry", None)
         list_c = getattr(self, "list_canvas", None)
         list_box = getattr(self, "list_box", None)
         page_c = getattr(self, "page_canvas", None)
         node: object | None = self._widget_under_wheel(event)
         while node is not None:
+            if entry is not None and node is entry:
+                try:
+                    first, last = entry.yview()
+                    if float(last) - float(first) < 0.98:
+                        return entry
+                except Exception:
+                    return entry
             if ask is not None and node is ask:
                 return None
             if list_c is not None and (node is list_c or node is list_box):
@@ -1473,7 +1503,72 @@ class BattleBuddyApp:
             node = getattr(node, "master", None)
         return page_c
 
+    def _bind_press_action(self, button: object, command) -> None:
+        """Fire on mouse-down. A canvas relayout cannot eat the click before release."""
+
+        def on_press(event: object) -> str:
+            number = getattr(event, "num", 1)
+            if number not in (1, None):
+                return "break"
+            try:
+                if str(button.cget("state")) == "disabled":  # type: ignore[attr-defined]
+                    return "break"
+            except Exception:
+                return "break"
+            command()
+            return "break"
+
+        try:
+            button.bind("<Button-1>", on_press)  # type: ignore[attr-defined]
+            button.bind("<ButtonRelease-1>", lambda _event: "break")  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+    def _attach_context_menus(self) -> None:
+        pairs = (
+            (getattr(self, "entry", None), False),
+            (getattr(self, "hold_entry", None), False),
+            (getattr(self, "ask_entry", None), False),
+            (getattr(self, "ask_out", None), True),
+            (getattr(self, "war_room_out", None), True),
+        )
+        for widget, readonly in pairs:
+            if widget is None:
+                continue
+            try:
+                attach_context_menu(widget, readonly=readonly)
+            except Exception:
+                continue
+
+    def _wheel_is_foreign(self, event: object) -> bool:
+        """True when the wheel event belongs to another Toplevel, such as the overlay."""
+        candidates = [getattr(event, "widget", None), self._widget_under_wheel(event)]
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                if candidate.winfo_toplevel() is not self.root:
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _wheel(self, event: object) -> str | None:
+        if self._wheel_is_foreign(event):
+            hud = getattr(self, "_hud", None)
+            overlay = getattr(hud, "_win", None) if hud is not None else None
+            touched = (
+                getattr(event, "widget", None),
+                self._widget_under_wheel(event),
+            )
+            if hud is not None and overlay is not None and any(
+                _widget_in(node, overlay) for node in touched
+            ):
+                try:
+                    hud.scroll_wheel(event)
+                except Exception:
+                    pass
+            return "break"
         target = self._scroll_target(event)
         if target is None:
             return None
@@ -1805,6 +1900,14 @@ class BattleBuddyApp:
         self._refresh_list()
 
     def _tick(self) -> None:
+        if getattr(self, "_closing", False):
+            return
+        hud = getattr(self, "_hud", None)
+        if hud is not None:
+            try:
+                hud._drain_ui_calls()
+            except Exception:
+                pass
         self._emit_minute_warns()
         try:
             fired = self.engine.fire_due()
@@ -1819,7 +1922,7 @@ class BattleBuddyApp:
         self._maybe_scan_game()
         self._maybe_unsolicited_miss()
         try:
-            self.root.after(_POLL_MS, self._tick)
+            self._tick_job = self.root.after(_POLL_MS, self._tick)
         except Exception:
             return
 
@@ -2170,6 +2273,14 @@ class BattleBuddyApp:
             return
 
     def _on_close(self) -> None:
+        self._closing = True
+        job = getattr(self, "_tick_job", None)
+        self._tick_job = None
+        if job is not None:
+            try:
+                self.root.after_cancel(job)
+            except Exception:
+                pass
         if self._hud is not None:
             try:
                 self._hud.shutdown()
@@ -2202,6 +2313,33 @@ class BattleBuddyApp:
             self.root.destroy()
         except Exception:
             return
+
+
+def _widget_in(widget: object | None, top: object) -> bool:
+    node = widget
+    while node is not None:
+        if node is top:
+            return True
+        node = getattr(node, "master", None)
+    return False
+
+
+def _already_placed(widget: object, x: int, y: int) -> bool:
+    """True when place() would put the widget where it already sits.
+
+    Calling place() again during a click makes Tk drop the button press,
+    so the command waits for a second click.
+    """
+    try:
+        info = widget.place_info()  # type: ignore[attr-defined]
+    except Exception:
+        return False
+    if not info:
+        return False
+    try:
+        return int(float(info.get("x", -9999))) == int(x) and int(float(info.get("y", -9999))) == int(y)
+    except (TypeError, ValueError):
+        return False
 
 
 def _window_is_hidden(root: object) -> bool:

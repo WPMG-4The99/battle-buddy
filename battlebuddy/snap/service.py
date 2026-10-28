@@ -300,10 +300,9 @@ class SnapAsk:
             self._fail(str(exc) or "Snap OCR failed.")
             return
         except Exception as exc:
-            self._fail(
-                "Snap OCR failed. pip install -r requirements-readthis.txt",
-                exc,
-            )
+            from battlebuddy.readthis.hints import snap_ocr_failed_help
+
+            self._fail(snap_ocr_failed_help(), exc)
             return
         text = clean_ocr_text(raw)
         if token != self._token or self._closed:
@@ -517,6 +516,12 @@ class SnapAsk:
         )
         entry.pack(fill="x", padx=12, ipady=6)
         entry.bind("<Return>", lambda _event: self.ask_followup())
+        try:
+            from battlebuddy.ui.context_menu import attach_context_menu
+
+            attach_context_menu(entry, readonly=False)
+        except Exception:
+            pass
         win.bind("<Escape>", lambda _event: self._escape_follow())
         tk.Label(  # type: ignore[attr-defined]
             win,
@@ -639,6 +644,11 @@ class SnapAsk:
         self._listen_banner = win
 
     def _hide_listen_banner(self) -> None:
+        # Shutdown already set _closed on the Tk thread. after(0) would fire
+        # after the root is gone and leak an "invalid command name" error.
+        if self._closed:
+            self._close_listen_banner()
+            return
         root = self._root
         if root is not None:
             try:
