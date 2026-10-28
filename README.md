@@ -66,6 +66,12 @@ Shots stay in `snaps` under the Battle Buddy home and drop off after 7 days. The
 
 Brain local uses the sidecar when it is up, and the on-screen text when it is not. Brain Grok sends the text only. The image stays on the box unless `BATTLEBUDDY_SNAP_SEND_IMAGE=1`.
 
+## Overlay
+
+**Ctrl+4**, the **Overlay** menu, or the tray icon opens a small always-on-top box. It lists every active timer and the live text from this window. Drag it onto any monitor. That spot is remembered for that monitor. The opacity slider runs from 10% to 100% and stays between launches. Below 50%, **Click through** can pass clicks to the game. Turn that off from the Overlay menu or the tray icon. The box does not dim the screen. Ctrl+1 (Read This), Ctrl+2 (Snap & Ask), and Ctrl+3 (Stop Talking) keep their own jobs.
+
+Change the hotkey with `BATTLEBUDDY_OVERLAY_HOTKEY=ctrl+shift+o`, or `"hotkey"` inside the `overlay` object in `session.json`.
+
 ## Demo
 
 PHYRE on a reel, no login: [watch the share page](https://reporeel-marlandoj.zocomputer.io/v/orZ8RaBQ). Reel by Marlando ([RepoReel](https://github.com/marlandoj/reporeel)). For the forgotten 99%. Oorah.
@@ -103,7 +109,7 @@ python -m battlebuddy hygiene stop
 
 macOS / Linux: same commands. Typed fallback always works. No cloud STT.
 
-State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Failures append to `battlebuddy.log`. Not committed.
+State: `%USERPROFILE%\.battlebuddy` on Windows, `~/.battlebuddy` on macOS/Linux. Reminders stay in `memory.json`. Games seen by SCAN and optional notes live in `catalog.sqlite`. Wiki pages stay under `databanks/`. Read This, Snap, and Stop Talking keep their hotkeys in `session.json` (`read_hotkey`, `snap_hotkey`, `stop_hotkey`). Last Read This box and text live there too. Overlay opacity, click-through, and per-monitor position stay in `session.json` under `overlay`. Failures append to `battlebuddy.log`. Not committed.
 
 ```text
 python -m battlebuddy note granary is low

@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
+from battlebuddy.readthis.hints import grab_help
 from battlebuddy.readthis.region import Rect
-
-_CAPTURE_HELP = (
-    "Read This needs a screen grab. Install the optional extras: "
-    "pip install mss Pillow"
-)
 
 
 class ReadError(RuntimeError):
@@ -31,7 +27,7 @@ def capture_region(rect: Rect) -> object:
         pillow_error = _missing(exc, "Pillow")
     except Exception as exc:
         pillow_error = f"Pillow failed ({exc})"
-    raise ReadError(f"{_CAPTURE_HELP} ({mss_error}; {pillow_error})")
+    raise ReadError(f"{grab_help()} ({mss_error}; {pillow_error})")
 
 
 def _missing(exc: ImportError, fallback: str) -> str:

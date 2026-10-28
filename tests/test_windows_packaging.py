@@ -47,6 +47,21 @@ class WindowsPackagingTest(unittest.TestCase):
         self.assertIn("battlebuddy.databank.reason", text)
         self.assertIn("battlebuddy.xai", text)
         self.assertIn("datas=[]", text)
+        for name in (
+            "battlebuddy.readthis",
+            "battlebuddy.snap",
+            "battlebuddy.ui.layout",
+            "battlebuddy.ui.hud",
+            "battlebuddy.ui.tray",
+            "battlebuddy.ui.context_menu",
+            "battlebuddy.ui.multiline",
+            "pystray",
+            "PIL",
+            "mss",
+            "pytesseract",
+            "winsdk",
+        ):
+            self.assertIn(f'"{name}"', text)
         self.assertNotIn(".gguf", text)
 
     def test_installer_names_battle_buddy_and_is_no_admin(self) -> None:
@@ -78,6 +93,10 @@ class WindowsPackagingTest(unittest.TestCase):
         self.assertIn("llama-b10621-bin-win-cpu-x64.zip", text)
         self.assertIn("0e8b65e650e369f70f8307d890508886f171ef4fb00facccddd4a1b7ffdaca51", text)
         self.assertIn("qwen2.5-0.5b-instruct-q4_k_m.gguf", text)
+        self.assertIn("requirements-readthis.txt", text)
+        self.assertIn("pystray", text)
+        self.assertIn("mss Pillow pytesseract", text)
+        self.assertIn("winsdk wheel missing", text)
 
 
 if __name__ == "__main__":

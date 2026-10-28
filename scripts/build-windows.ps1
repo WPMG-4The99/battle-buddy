@@ -41,6 +41,20 @@ if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed." }
 & $VenvPython -m pip install pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller install failed. Build-only; not added to requirements.txt." }
 
+Write-Host "Installing pystray and Read This extras into .venv-build so the exe bundles them."
+& $VenvPython -m pip install pystray
+if ($LASTEXITCODE -ne 0) { throw "pystray install failed." }
+& $VenvPython -m pip install -r (Join-Path $RepoRoot "requirements-readthis.txt")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "requirements-readthis.txt did not install cleanly (winsdk often has no wheel). Installing mss, Pillow, pytesseract."
+    & $VenvPython -m pip install mss Pillow pytesseract
+    if ($LASTEXITCODE -ne 0) { throw "mss/Pillow/pytesseract install failed." }
+    & $VenvPython -m pip install winsdk
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "winsdk wheel missing. The packaged build uses Windows PowerShell OCR instead."
+    }
+}
+
 Write-Host "Building windowed onedir BattleBuddy.exe."
 & $VenvPython -m PyInstaller --noconfirm --clean (Join-Path $RepoRoot "BattleBuddy.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed." }
